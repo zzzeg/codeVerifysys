@@ -1,159 +1,113 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
-import type { ApiResp } from '../utils/request'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
-interface UserItem {
-  id: string
-  username: string
-  email?: string
-  phone?: string
-  status: string
-  roleIds: string[]
-}
+const route = useRoute()
+const router = useRouter()
 
-const query = reactive({ keyword: '' })
-const list = ref<UserItem[]>([])
-const loading = ref(false)
-const dialogVisible = ref(false)
-const editingId = ref<string | null>(null)
-const form = reactive<Partial<UserItem & { password: string }>>({
-  username: '',
-  email: '',
-  phone: '',
-  password: '',
-  status: 'active',
-  roleIds: [],
+const currentTitle = computed(() => {
+  if (route.name === 'users-create') return '新增用户'
+  if (route.name === 'users-edit') return '编辑用户'
+  return '用户管理'
 })
 
-const fetchUsers = async () => {
-  loading.value = true
-  try {
-    const resp = await request.get<ApiResp<{ list: UserItem[] }>>('/api/users', { params: query })
-    list.value = resp.data.data.list
-  } catch (err: any) {
-    ElMessage.error(err?.response?.data?.message || '获取用户失败')
-  } finally {
-    loading.value = false
-  }
-}
+const sideItems = [
+  { label: '用户列表', path: '/users/list', names: ['users-list'] },
+  { label: '新增用户', path: '/users/create', names: ['users-create'] },
+]
 
-const openDialog = (row?: UserItem) => {
-  editingId.value = row?.id || null
-  Object.assign(form, {
-    username: row?.username || '',
-    email: row?.email || '',
-    phone: row?.phone || '',
-    status: row?.status || 'active',
-    roleIds: row?.roleIds || [],
-    password: '',
-  })
-  dialogVisible.value = true
+const isActive = (names: string[]) => names.includes(String(route.name || ''))
+const navigateTo = (path: string) => {
+  if (route.path !== path) router.push(path)
 }
-
-const saveUser = async () => {
-  try {
-    if (editingId.value) {
-      await request.put(`/api/users/${editingId.value}`, form)
-      ElMessage.success('更新成功')
-    } else {
-      await request.post('/api/users', form)
-      ElMessage.success('创建成功')
-    }
-    dialogVisible.value = false
-    fetchUsers()
-  } catch (err: any) {
-    ElMessage.error(err?.response?.data?.message || '保存失败')
-  }
-}
-
-const removeUser = async (row: UserItem) => {
-  await ElMessageBox.confirm(`确定删除用户 ${row.username} 吗？`, '提示', { type: 'warning' })
-  await request.delete(`/api/users/${row.id}`)
-  ElMessage.success('已删除')
-  fetchUsers()
-}
-
-const toggleStatus = async (row: UserItem) => {
-  const newStatus = row.status === 'active' ? 'disabled' : 'active'
-  await request.patch(`/api/users/${row.id}/status`, { status: newStatus })
-  ElMessage.success('状态已更新')
-  fetchUsers()
-}
-
-onMounted(fetchUsers)
 </script>
 
 <template>
-  <div>
-    <el-card>
-      <template #header>
-        <div class="toolbar">
-          <el-input v-model="query.keyword" placeholder="搜索用户名/邮箱" style="width: 240px" clearable @clear="fetchUsers" @keyup.enter="fetchUsers" />
-          <div class="actions">
-            <el-button type="primary" @click="fetchUsers">查询</el-button>
-            <el-button type="success" @click="openDialog()">新增用户</el-button>
-          </div>
+  <div class="vs-ref-shell">
+    <div class="vs-ref-frame auto-frame">
+      <aside class="auto-side">
+        <div class="auto-side-head">用户管理</div>
+        <div class="auto-side-body">
+          <button
+            v-for="item in sideItems"
+            :key="item.path"
+            type="button"
+            class="auto-side-link"
+            :class="{ active: isActive(item.names) }"
+            @click="navigateTo(item.path)"
+          >
+            > {{ item.label }}
+          </button>
         </div>
-      </template>
-      <el-table :data="list" v-loading="loading" style="width: 100%">
-        <el-table-column prop="username" label="用户名" />
-        <el-table-column prop="email" label="邮箱" />
-        <el-table-column prop="phone" label="电话" />
-        <el-table-column prop="status" label="状态">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'active' ? 'success' : 'info'">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="220">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" :type="row.status == 'active' ? 'warning' : 'success'" @click="toggleStatus(row)">{{ row.status === 'active' ? '禁用' : '启用' }}</el-button>
-            <el-button size="small" type="danger" @click="removeUser(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+      </aside>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑用户' : '新增用户'" width="480px">
-      <el-form :model="form" label-width="90px">
-        <el-form-item label="用户名">
-          <el-input v-model="form.username" />
-        </el-form-item>
-        <el-form-item label="邮箱">
-          <el-input v-model="form.email" />
-        </el-form-item>
-        <el-form-item label="电话">
-          <el-input v-model="form.phone" />
-        </el-form-item>
-        <el-form-item label="密码" v-if="!editingId">
-          <el-input v-model="form.password" type="password" show-password />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="form.status" style="width: 200px">
-            <el-option label="启用" value="active" />
-            <el-option label="禁用" value="disabled" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveUser">保存</el-button>
-      </template>
-    </el-dialog>
+      <section class="vs-ref-main">
+        <div class="vs-ref-main-head">
+          <h2 class="vs-ref-main-title">{{ currentTitle }}</h2>
+        </div>
+        <div class="vs-ref-main-body">
+          <router-view />
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.toolbar {
+.auto-frame {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  min-height: 0;
+  flex-direction: row;
 }
-.actions {
-  display: flex;
-  gap: 10px;
+
+.auto-side {
+  width: 224px;
+  border-right: 1px solid var(--vs-border);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.auto-side-head {
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(90deg, var(--vs-primary) 0%, var(--vs-primary-strong) 100%);
+}
+
+.auto-side-body {
+  padding: 8px;
+}
+
+.auto-side-link {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #4b5563;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.auto-side-link:hover {
+  background: rgba(249, 250, 251, 0.9);
+}
+
+.auto-side-link.active {
+  background: rgba(243, 244, 246, 0.96);
+  color: #111827;
+}
+
+@media (max-width: 980px) {
+  .auto-frame {
+    flex-direction: column;
+  }
+
+  .auto-side {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--vs-border);
+  }
 }
 </style>

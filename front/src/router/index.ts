@@ -3,9 +3,12 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import BaseLayout from '../layouts/BaseLayout.vue'
 import Login from '../views/Login.vue'
-import Dashboard from '../views/Dashboard.vue'
 import Users from '../views/Users.vue'
+import UsersList from '../views/users/UsersList.vue'
+import UsersForm from '../views/users/UsersForm.vue'
 import Roles from '../views/Roles.vue'
+import RolesList from '../views/roles/RolesList.vue'
+import RolesForm from '../views/roles/RolesForm.vue'
 import ProjectsLayout from '../views/projects/ProjectsLayout.vue'
 import ProjectsList from '../views/projects/ProjectsList.vue'
 import ProjectsCreate from '../views/projects/ProjectsCreate.vue'
@@ -13,10 +16,21 @@ import CodesLayout from '../views/codes/CodesLayout.vue'
 import CodesList from '../views/codes/CodesList.vue'
 import CodesGenerate from '../views/codes/CodesGenerate.vue'
 import Products from '../views/Products.vue'
+import ProductsList from '../views/products/ProductsList.vue'
+import ProductsForm from '../views/products/ProductsForm.vue'
 import Logs from '../views/Logs.vue'
+import LogsOperation from '../views/logs/LogsOperation.vue'
+import LogsLogin from '../views/logs/LogsLogin.vue'
+import LogsError from '../views/logs/LogsError.vue'
 import Profile from '../views/Profile.vue'
 import CustomData from '../views/CustomData.vue'
+import CustomDataList from '../views/custom-data/CustomDataList.vue'
+import CustomDataForm from '../views/custom-data/CustomDataForm.vue'
+import CustomDataHelp from '../views/custom-data/CustomDataHelp.vue'
 import SecurityPolicies from '../views/SecurityPolicies.vue'
+import SecurityPoliciesList from '../views/security-policies/SecurityPoliciesList.vue'
+import SecurityPoliciesForm from '../views/security-policies/SecurityPoliciesForm.vue'
+import AutoDelivery from '../views/AutoDelivery.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -29,16 +43,33 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: BaseLayout,
     children: [
-      { path: '', redirect: '/dashboard' },
-      { path: 'dashboard', name: 'dashboard', component: Dashboard, meta: { title: '仪表盘' } },
-      { path: 'users', name: 'users', component: Users, meta: { title: '用户管理' } },
-      { path: 'roles', name: 'roles', component: Roles, meta: { title: '角色管理' } },
+      { path: '', redirect: '/codes/list' },
+      {
+        path: 'users',
+        component: Users,
+        children: [
+          { path: '', redirect: '/users/list' },
+          { path: 'list', name: 'users-list', component: UsersList, meta: { title: '用户管理' } },
+          { path: 'create', name: 'users-create', component: UsersForm, meta: { title: '新增用户' } },
+          { path: 'edit/:id', name: 'users-edit', component: UsersForm, meta: { title: '编辑用户' } },
+        ],
+      },
+      {
+        path: 'roles',
+        component: Roles,
+        children: [
+          { path: '', redirect: '/roles/list' },
+          { path: 'list', name: 'roles-list', component: RolesList, meta: { title: '角色管理' } },
+          { path: 'create', name: 'roles-create', component: RolesForm, meta: { title: '新增角色' } },
+          { path: 'edit/:id', name: 'roles-edit', component: RolesForm, meta: { title: '编辑角色' } },
+        ],
+      },
       {
         path: 'projects',
         component: ProjectsLayout,
         children: [
           { path: '', redirect: '/projects/list' },
-          { path: 'list', name: 'projects-list', component: ProjectsList, meta: { title: '项目管理' } },
+          { path: 'list', name: 'projects-list', component: ProjectsList, meta: { title: '项目列表' } },
           { path: 'create', name: 'projects-create', component: ProjectsCreate, meta: { title: '新建项目' } },
         ],
       },
@@ -51,10 +82,48 @@ const routes: RouteRecordRaw[] = [
           { path: 'generate', name: 'codes-generate', component: CodesGenerate, meta: { title: '注册码生成' } },
         ],
       },
-      { path: 'products', name: 'products', component: Products, meta: { title: '商品管理' } },
-      { path: 'custom-data', name: 'custom-data', component: CustomData, meta: { title: '自定义数据' } },
-      { path: 'security-policies', name: 'security-policies', component: SecurityPolicies, meta: { title: '安全策略管理' } },
-      { path: 'logs', name: 'logs', component: Logs, meta: { title: '系统日志' } },
+      {
+        path: 'products',
+        component: Products,
+        children: [
+          { path: '', redirect: '/products/list' },
+          { path: 'list', name: 'products-list', component: ProductsList, meta: { title: '商品管理' } },
+          { path: 'create', name: 'products-create', component: ProductsForm, meta: { title: '新增商品' } },
+          { path: 'edit/:id', name: 'products-edit', component: ProductsForm, meta: { title: '编辑商品' } },
+        ],
+      },
+      {
+        path: 'custom-data',
+        component: CustomData,
+        children: [
+          { path: '', redirect: '/custom-data/list' },
+          { path: 'list', name: 'custom-data-list', component: CustomDataList, meta: { title: '自定义数据' } },
+          { path: 'create', name: 'custom-data-create', component: CustomDataForm, meta: { title: '新增自定义数据' } },
+          { path: 'edit/:id', name: 'custom-data-edit', component: CustomDataForm, meta: { title: '编辑自定义数据' } },
+          { path: 'help', name: 'custom-data-help', component: CustomDataHelp, meta: { title: '使用说明' } },
+        ],
+      },
+      {
+        path: 'security-policies',
+        component: SecurityPolicies,
+        children: [
+          { path: '', redirect: '/security-policies/list' },
+          { path: 'list', name: 'security-policies-list', component: SecurityPoliciesList, meta: { title: '安全策略管理' } },
+          { path: 'create', name: 'security-policies-create', component: SecurityPoliciesForm, meta: { title: '新增安全策略' } },
+          { path: 'edit/:id', name: 'security-policies-edit', component: SecurityPoliciesForm, meta: { title: '编辑安全策略' } },
+        ],
+      },
+      { path: 'auto-delivery', name: 'auto-delivery', component: AutoDelivery, meta: { title: '自动发卡' } },
+      {
+        path: 'logs',
+        component: Logs,
+        children: [
+          { path: '', redirect: '/logs/operation' },
+          { path: 'operation', name: 'logs-operation', component: LogsOperation, meta: { title: '操作日志' } },
+          { path: 'login', name: 'logs-login', component: LogsLogin, meta: { title: '登录日志' } },
+          { path: 'error', name: 'logs-error', component: LogsError, meta: { title: '错误日志' } },
+        ],
+      },
       { path: 'profile', name: 'profile', component: Profile, meta: { title: '个人中心' } },
     ],
   },
@@ -67,14 +136,17 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   const auth = useAuthStore()
+
   if (to.path !== '/login' && !auth.token) {
     next({ path: '/login', query: { redirect: to.fullPath } })
     return
   }
+
   if (to.path === '/login' && auth.token) {
-    next('/dashboard')
+    next('/codes/list')
     return
   }
+
   document.title = (to.meta.title as string) || 'VerifySys'
   next()
 })

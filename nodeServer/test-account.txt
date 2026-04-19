@@ -1,0 +1,4 @@
+用户名：admins
+邮箱：zhaienguang@qq.com
+初始密码：123456
+用户 ID：u-admins

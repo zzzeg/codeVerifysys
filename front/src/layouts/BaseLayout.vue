@@ -1,394 +1,453 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessageBox, ElMessage } from 'element-plus'
 import {
-  House,
-  User,
-  Key,
+  User as AvatarIcon,
   Collection,
-  Tickets,
-  ShoppingCart,
   DataAnalysis,
-  Lock,
   Document,
-  Avatar as AvatarIcon,
-  List,
-  Edit,
-  CirclePlus,
-  Close,
+  Key,
+  Lock,
+  Menu,
+  Promotion,
+  ShoppingCart,
+  SwitchButton,
+  Tickets,
+  UserFilled as User,
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../store/auth'
-import { useTabsStore } from '../store/tabs'
 
-const router = useRouter()
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
-const tabsStore = useTabsStore()
+const mobileMenuOpen = ref(false)
 
-const menuItems = [
-  { path: '/dashboard', label: '仪表盘', icon: House },
-  { path: '/users', label: '用户管理', icon: User },
-  { path: '/roles', label: '角色管理', icon: Key },
-  {
-    path: '/projects',
-    label: '项目管理',
-    icon: Collection,
-    children: [
-      { path: '/projects/list', label: '项目管理', icon: Document },
-      { path: '/projects/create', label: '新建项目', icon: CirclePlus },
-    ],
-  },
-  {
-    path: '/codes',
-    label: '注册码管理',
-    icon: Tickets,
-    children: [
-      { path: '/codes/list', label: '注册码列表', icon: List },
-      { path: '/codes/generate', label: '注册码生成', icon: Edit },
-    ],
-  },
-  { path: '/products', label: '商品管理', icon: ShoppingCart },
-  { path: '/custom-data', label: '自定义数据', icon: DataAnalysis },
-  { path: '/security-policies', label: '安全策略', icon: Lock },
-  { path: '/logs', label: '系统日志', icon: Document },
-  { path: '/profile', label: '个人中心', icon: AvatarIcon },
+const primaryMenu = [
+  { path: '/codes/list', basePath: '/codes', label: '注册码管理', icon: Tickets },
+  { path: '/projects/list', basePath: '/projects', label: '项目管理', icon: Collection },
+  { path: '/products/list', basePath: '/products', label: '商品管理', icon: ShoppingCart },
+  { path: '/custom-data/list', basePath: '/custom-data', label: '自定义数据', icon: DataAnalysis },
+  { path: '/security-policies/list', basePath: '/security-policies', label: '安全策略', icon: Lock },
+  { path: '/auto-delivery', basePath: '/auto-delivery', label: '自动发卡', icon: Promotion },
 ]
 
-const activeMenu = computed(() => route.path)
+const manageMenu = [
+  { path: '/users', basePath: '/users', label: '用户管理', icon: User },
+  { path: '/roles', basePath: '/roles', label: '角色管理', icon: Key },
+  { path: '/logs', basePath: '/logs', label: '系统日志', icon: Document },
+]
 
-const breadcrumb = computed(() => {
-  const matched = route.matched.filter((m) => m.meta?.title)
-  return [{ title: '首页', path: '/dashboard' }, ...matched.map((m) => ({ title: m.meta?.title as string, path: m.path || '' }))]
-})
-
-const addTabByRoute = () => {
-  const title = (route.meta.title as string) || '未命名'
-  tabsStore.addTab({ title, path: route.path, hover: false })
+const isActive = (path: string, basePath?: string) => {
+  if (route.path === path) return true
+  return basePath ? route.path === basePath || route.path.startsWith(`${basePath}/`) : false
 }
 
-const handleLogout = async () => {
-  await ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
-  auth.logout()
-  ElMessage.success('已退出')
-  router.push('/login')
-}
+const currentUsername = computed(() => auth.currentUser?.username || '管理员')
 
-const handleTabClick = (path: string) => {
-  tabsStore.active = path
-  router.push(path)
-}
-
-const handleTabClose = (path: string) => {
-  tabsStore.removeTab(path)
-  router.push(tabsStore.active)
-}
-
-onMounted(() => {
-  auth.fetchProfile()
-  addTabByRoute()
-})
-
-watch(
-  () => route.fullPath,
-  () => addTabByRoute(),
-  { immediate: false },
-)
-
-const handleTabHover = (hovered: boolean, path: string) => {
-  const tab = tabsStore.tabs.find((tab) => tab.path === path)
-  if (tab) {
-    tab.hover = hovered
+const navigateTo = (path: string) => {
+  mobileMenuOpen.value = false
+  if (route.path !== path) {
+    router.push(path)
   }
 }
 
+const handleLogout = () => {
+  auth.logout()
+  mobileMenuOpen.value = false
+  router.push('/login')
+}
+
+onMounted(() => {
+  auth.fetchProfile().catch(() => undefined)
+})
 </script>
 
 <template>
-  <div class="layout">
-    <aside class="sider">
-      <div class="logo">
-        <div class="logo-mark">V</div>
-        <div class="logo-text">
-          <div class="name">VerifySys</div>
-          <div class="desc">控制台</div>
+  <div class="layout-shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand" @click="navigateTo('/codes/list')">
+          <div class="brand-mark">V</div>
+          <div class="brand-copy">
+            <div class="brand-title">VerifySys</div>
+            <div class="brand-subtitle">License Workspace</div>
+          </div>
         </div>
-      </div>
-      <el-menu :default-active="activeMenu" router class="menu" 
-        active-text-color="#fff">
-        <template v-for="item in menuItems" :key="item.path">
-          <el-sub-menu v-if="item.children" :index="item.path">
-            <template #title>
-              <el-icon>
-                <component :is="item.icon" />
-              </el-icon>
-              <span>{{ item.label }}</span>
+
+        <nav class="desktop-nav">
+          <button
+            v-for="item in primaryMenu"
+            :key="item.basePath"
+            type="button"
+            class="nav-link"
+            :class="{ active: isActive(item.path, item.basePath) }"
+            @click="navigateTo(item.path)"
+          >
+            {{ item.label }}
+          </button>
+        </nav>
+
+        <div class="toolbar">
+          <el-dropdown trigger="click">
+            <span class="user-badge">
+              <el-icon :size="16"><AvatarIcon /></el-icon>
+              <span>{{ currentUsername }}</span>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="navigateTo('/profile')">
+                  <el-icon><AvatarIcon /></el-icon>
+                  个人中心
+                </el-dropdown-item>
+                <el-dropdown-item
+                  v-for="item in manageMenu"
+                  :key="item.path"
+                  @click="navigateTo(item.path)"
+                >
+                  <el-icon><component :is="item.icon" /></el-icon>
+                  {{ item.label }}
+                </el-dropdown-item>
+				<el-dropdown-item divided @click="handleLogout" class="reditems">
+				  <el-icon><SwitchButton /></el-icon>
+				  退出登录
+				</el-dropdown-item>
+              </el-dropdown-menu>
             </template>
-            <el-menu-item v-for="sub in item.children" :key="sub.path" :index="sub.path">
-              <el-icon>
-                <component :is="sub.icon" />
-              </el-icon>
-              <span>{{ sub.label }}</span>
-            </el-menu-item>
-          </el-sub-menu>
-          <el-menu-item v-else :index="item.path">
-            <el-icon>
-              <component :is="item.icon" />
-            </el-icon>
-            <span>{{ item.label }}</span>
-          </el-menu-item>
-        </template>
-      </el-menu>
-    </aside>
-    <main class="main">
-      <header class="header">
-        <div class="breadcrumb">
-          <el-breadcrumb separator="/">
-            <el-breadcrumb-item v-for="item in breadcrumb" :key="item.path || item.title" :to="item.path">{{ item.title
-              }}</el-breadcrumb-item>
-          </el-breadcrumb>
-        </div>
-        <div class="user-area">
-          <el-icon class="avatar">
-            <AvatarIcon />
-          </el-icon>
-          <span class="user">{{ auth.currentUser?.username || '访客' }}</span>
-          <el-button size="small" @click="router.push('/profile')">个人中心</el-button>
-          <el-button size="small" type="danger" @click="handleLogout">退出</el-button>
-        </div>
-      </header>
-      <div class="tabs-bar">
-        <div v-for="tab in tabsStore.tabs" :key="tab.path" class="tab-item" @mouseover="handleTabHover(true, tab.path)"
-          @mouseleave="handleTabHover(false, tab.path)"
-          :class="{ active: tabsStore.active === tab.path, 'schedule-in': tab.hover, 'schedule-out': !tab.hover }"
-          @click="handleTabClick(tab.path)">
-          <span>{{ tab.title }}</span>
-          <el-icon v-if="tab.path !== '/dashboard'" class="close" @click.stop="handleTabClose(tab.path)">
-            <Close />
-          </el-icon>
+          </el-dropdown>
+
+         <!-- <button type="button" class="logout-button" @click="handleLogout" aria-label="退出登录">
+            <el-icon><SwitchButton /></el-icon>
+          </button> -->
+		  
+		  <!-- <el-button @click="handleLogout" aria-label="退出登录" size="small" type="danger" circle class="logout-button">
+			  <el-icon><SwitchButton /></el-icon>
+		  </el-button> -->
+		  
+
+          <button type="button" class="mobile-toggle" @click="mobileMenuOpen = !mobileMenuOpen">
+            <el-icon><Menu /></el-icon>
+          </button>
         </div>
       </div>
-      <section class="content">
+
+      <div v-if="mobileMenuOpen" class="mobile-panel">
+        <div class="mobile-links">
+          <button
+            v-for="item in [...primaryMenu, ...manageMenu]"
+            :key="item.basePath"
+            type="button"
+            class="mobile-link"
+            :class="{ active: isActive(item.path, item.basePath) }"
+            @click="navigateTo(item.path)"
+          >
+            <el-icon><component :is="item.icon" /></el-icon>
+            <span>{{ item.label }}</span>
+          </button>
+          <button type="button" class="mobile-link" :class="{ active: route.path === '/profile' }" @click="navigateTo('/profile')">
+            <el-icon><AvatarIcon /></el-icon>
+            <span>个人中心</span>
+          </button>
+          <button type="button" class="mobile-link danger" @click="handleLogout">
+            <el-icon><SwitchButton /></el-icon>
+            <span>退出登录</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="content-shell">
         <router-view />
       </section>
     </main>
+
+    <nav class="mobile-bottom-nav">
+      <button
+        v-for="item in primaryMenu.slice(0, 4)"
+        :key="item.basePath"
+        type="button"
+        class="mobile-bottom-link"
+        :class="{ active: isActive(item.path, item.basePath) }"
+        @click="navigateTo(item.path)"
+      >
+        <el-icon><component :is="item.icon" /></el-icon>
+        <span>{{ item.label }}</span>
+      </button>
+    </nav>
   </div>
 </template>
 
 <style scoped lang="scss">
-.layout {
-  display: grid;
-  grid-template-columns: 240px 1fr;
+.layout-shell {
+  height: 100vh;
   min-height: 100vh;
-  background: #eef2f7;
+  background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+  overflow: hidden;
 }
 
-.sider {
-  color: #303133;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0px 0 3px rgba(15, 23, 42, 0.1);
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.86);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.logo {
+.topbar-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  min-height: 64px;
+  padding: 0 20px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 18px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: #fff;
+  gap: 20px;
 }
 
-.logo-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-right: 32px;
+  min-width: 220px;
+  cursor: pointer;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #409eff 0%, #2f7eea 100%);
+  box-shadow: 0 10px 18px rgba(64, 158, 255, 0.3);
+}
+
+.brand-title {
+  font-size: 16px;
+  font-weight: 600;
   color: #303133;
 }
 
-.logo-text .name {
-  font-weight: 700;
-}
-
-.logo-text .desc {
+.brand-subtitle {
+  margin-top: 2px;
   font-size: 12px;
-  color: #94a3b8;
+  color: #909399;
 }
 
-.menu {
-  border-right: none;
+.desktop-nav {
   flex: 1;
-  padding: 8px 0;
-  display: flex;
-    flex-direction: column; 
-}
-
-.menu :deep(.el-menu-item) {
-  margin: 5px 4px;
-  border-radius: 4px;
-}
-:deep(.el-sub-menu) {
-  margin: 5px 4px;
-  border-radius: 4px;
-}
-.menu :deep(.el-menu-item.is-active) {
-  background:#409EFF;
-}
-:deep(.el-sub-menu__title) {
-  height: 40px; line-height: 50px; overflow: hidden;
-}
-:deep(.el-menu-item) {
-  height: 40px; line-height: 50px; overflow: hidden; border-top:solid 1px transparent;
-}
-
-.main {
-  display: flex;
-  flex-direction: column;
-}
-
-.header {
-  height: 48px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 1px 10px rgba(15, 23, 42, 0.08);
+  gap: 8px;
+  min-width: 0;
 }
 
-.breadcrumb {
+.nav-link {
+  border: none;
+  background: transparent;
+  color: #606266;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
-.content {
-  padding: 18px;
-  overflow: auto;
-  flex: 1;
+.nav-link:hover {
+  background: #f3f4f6;
+  color: #4b5563;
 }
 
-.tabs-bar {
+.nav-link.active {
+  color: #fff;
+  background: linear-gradient(90deg, #409eff 0%, #2f7eea 100%);
+  box-shadow: 0 10px 18px rgba(64, 158, 255, 0.3);
+}
+
+.toolbar {
   display: flex;
   align-items: center;
-
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  gap: 12px;
+  padding-right:5px;
 }
 
-.tab-item {
+.user-badge {
   display: inline-flex;
   align-items: center;
-  padding: 0px 12px;
-  height: 34px; line-height: 34px;
+  gap: 8px;
+  padding: 7px 16px;
+  border: 1px solid rgba(229, 231, 235, 0.8);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #222;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  color: #334155;
-  position: relative;
-  font-size: 14px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+  box-shadow: 0 0px 5px rgba(000,000,000,.04);
 }
 
-.tab-item.active {
-  color: #409EFF;
-  background: #fff;
-  border-left: 1px solid #eee;
-  border-right: 1px solid #eee;
-
-  &::after {
-    content: '';
-    display: block;
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    height: 2px;
-    background: #409EFF;
-  }
+.user-badge:hover {
+  background: rgba(243,244,246,1);
+  //color: #dc2626;
 }
 
-.tab-item .close {
-  font-size: 14px;
-  color: #94a3b8;
-  margin-left:10px;
+.mobile-toggle {
+  display: none;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #303133;
 }
 
-.schedule-in {
-  &::before {
-    animation: schedule-in .2s ease-in;
-    background: #409EFF;
-    bottom: 0;
-    height: 2px;
-    left: 0;
-    position: absolute;
-    width: 100%;
-    content: "";
-    display: block;
-  }
+.logout-button {
+  
+  //background: linear-gradient(135deg, #f56c6c 0%, #eb5252 100%);
+ 
+  box-shadow: 0 2px 10px rgba(245, 108, 108, .6) !important;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
-.schedule-out {
-  &::before {
-    animation: schedule-out .2s ease-in;
-    background: #409EFF;
-    bottom: 0;
-    height: 2px;
-    left: 0;
-    position: absolute;
-    width: 0;
-    content: "";
-    display: block;
-  }
+.logout-button:hover {
+  background: linear-gradient(135deg, #fb7d7d 0%, #f16060 100%);
+  box-shadow: 0 14px 22px rgba(245, 108, 108, 0.3);
+  transform: translateY(-1px);
 }
 
-@keyframes schedule-in {
-  0% {
-    width: 0
-  }
-
-  to {
-    width: 100%
-  }
+.page-shell {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px 20px 24px;
+  height: calc(100vh - 64px);
 }
 
-@keyframes schedule-out {
-  0% {
-    width: 100%
-  }
-
-  to {
-    width: 0
-  }
+.content-shell {
+  height: 100%;
+  min-height: 0;
 }
 
-.user-area {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+.mobile-panel,
+.mobile-bottom-nav {
+  display: none;
 }
 
-.avatar {
-  background: #e0f2fe;
-  color: #0ea5e9;
-  border-radius: 50%;
-  padding: 6px;
+:deep(.reditems.el-dropdown-menu__item){
+	color:var(--el-color-danger); font-weight: bold;
 }
 
-.user {
-  color: #0f172a;
-}
-
-@media (max-width: 900px) {
-  .layout {
-    grid-template-columns: 72px 1fr;
-  }
-
-  .logo-text {
+@media (max-width: 1024px) {
+  .desktop-nav,
+  .toolbar :deep(.el-dropdown) {
     display: none;
   }
 
-  .menu :deep(.el-menu-item span) {
-    font-size: 12px;
+  .mobile-toggle {
+    display: inline-grid;
+    place-items: center;
+  }
+
+  .page-shell {
+    padding: 16px 16px 88px;
+  }
+
+  .mobile-panel {
+    display: block;
+    border-top: 1px solid #e4e7ed;
+    background: #fff;
+    padding: 8px 16px 12px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  }
+
+  .mobile-links {
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobile-link {
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #606266;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .mobile-link.active {
+    color: #fff;
+    background: linear-gradient(90deg, #409eff 0%, #2f7eea 100%);
+    box-shadow: 0 10px 18px rgba(64, 158, 255, 0.3);
+  }
+
+  .mobile-link.danger {
+    justify-content: center;
+    border: 1px solid rgba(229, 231, 235, 0.8);
+    border-radius: 12px;
+    margin-top: 8px;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid #e4e7ed;
+    background: rgba(255, 255, 255, 0.86);
+  }
+
+  .mobile-bottom-link {
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    padding: 8px 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: #606266;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .mobile-bottom-link.active {
+    color: #409eff;
+  }
+
+  .mobile-bottom-link.active :deep(svg) {
+    stroke-width: 2.5;
+  }
+}
+
+@media (max-width: 640px) {
+  .brand {
+    min-width: auto;
+  }
+
+  .brand-copy {
+    display: none;
   }
 }
 </style>

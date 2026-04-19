@@ -1,0 +1,28 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  color: #0f172a;
+  background-color: #f6f7fb;
+}
+
+body {
+  margin: 0;
+  background: #f6f7fb;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.el-table .el-table__cell.is-leaf {
+  background:#f5f7fa;
+}

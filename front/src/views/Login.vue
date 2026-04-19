@@ -1,27 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref ,onMounted} from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '../utils/request'
 import type { ApiResp } from '../utils/request'
 import { useAuthStore } from '../store/auth'
 import illustration from '../assets/login-illustration.svg'
-
-//打字机效果
-const text = ref(""); // 要显示的文字
-const speed = 100; // 打字速度，单位：毫秒
-let index = 0;
-const originalText =`VerifySys`;
-const typeWriter = () => {
-  if (index < originalText.length) {
-    text.value += originalText.charAt(index);
-    index++;
-    setTimeout(typeWriter, speed);
-  }
-};
-onMounted(() => {
-  typeWriter(); // 调用打字机函数
-});
 
 interface LoginResult {
   token: string
@@ -33,7 +17,14 @@ interface LoginResult {
 }
 
 type Mode = 'login' | 'register' | 'forgot'
+
+const router = useRouter()
+const auth = useAuthStore()
 const mode = ref<Mode>('login')
+const text = ref('')
+const originalText = 'VerifySys'
+const speed = 100
+let index = 0
 
 const loginForm = reactive({
   username: '',
@@ -59,19 +50,24 @@ const forgotForm = reactive({
   loading: false,
 })
 
-const router = useRouter()
-const auth = useAuthStore()
-
 const title = computed(() => (mode.value === 'login' ? '登录' : mode.value === 'register' ? '注册' : '找回密码'))
 
+const typeWriter = () => {
+  if (index < originalText.length) {
+    text.value += originalText.charAt(index)
+    index += 1
+    setTimeout(typeWriter, speed)
+  }
+}
+
 const getRedirectTarget = () => {
-  const route = router.currentRoute.value
-  const q = route.query.redirect
+  const currentRoute = router.currentRoute.value
+  const q = currentRoute.query.redirect
   const fromQuery = typeof q === 'string' ? q : ''
   const fromStorage = sessionStorage.getItem('redirectAfterLogin') || ''
-  const target = fromQuery || fromStorage || '/dashboard'
+  const target = fromQuery || fromStorage || '/codes/list'
   sessionStorage.removeItem('redirectAfterLogin')
-  if (!target.startsWith('/') || target.startsWith('/login')) return '/dashboard'
+  if (!target.startsWith('/') || target.startsWith('/login')) return '/codes/list'
   return target
 }
 
@@ -101,6 +97,7 @@ const countdown = reactive({
   register: 0,
   reset: 0,
 })
+
 let timer: number | undefined
 
 const startCountdown = (key: 'register' | 'reset', seconds: number) => {
@@ -116,19 +113,22 @@ const startCountdown = (key: 'register' | 'reset', seconds: number) => {
   }, 1000)
 }
 
-onBeforeUnmount(() => {
-  if (timer) window.clearInterval(timer)
-})
-
 const sendEmailCode = async (purpose: 'register' | 'reset') => {
   const email = purpose === 'register' ? registerForm.email : forgotForm.email
   if (!email.trim()) return ElMessage.warning('请输入邮箱')
 
   try {
-    const resp = await request.post<ApiResp<{ expireAt: number; debugCode?: string }>>('/api/auth/email-code', { email, purpose })
+    const resp = await request.post<ApiResp<{ expireAt: number; debugCode?: string }>>('/api/auth/email-code', {
+      email,
+      purpose,
+    })
     if (resp.data.code !== 200) return ElMessage.error(resp.data.message || '发送失败')
 
-    ElMessage.success(resp.data.data.debugCode ? `验证码已发送（开发码：${resp.data.data.debugCode}）` : '验证码已发送')
+    ElMessage.success(
+      resp.data.data.debugCode
+        ? `验证码已发送（开发码：${resp.data.data.debugCode}）`
+        : '验证码已发送',
+    )
     if (resp.data.data.debugCode) {
       if (purpose === 'register') registerForm.emailCode = resp.data.data.debugCode
       else forgotForm.emailCode = resp.data.data.debugCode
@@ -186,7 +186,7 @@ const handleResetPassword = async () => {
     })
     if (resp.data.code !== 200) return ElMessage.error(resp.data.message || '重置失败')
 
-    ElMessage.success('密码已重置，请登录')
+    ElMessage.success('密码已重置，请重新登录')
     mode.value = 'login'
     loginForm.username = ''
     loginForm.password = ''
@@ -196,302 +196,488 @@ const handleResetPassword = async () => {
     forgotForm.loading = false
   }
 }
+
+onMounted(() => {
+  typeWriter()
+})
+
+onBeforeUnmount(() => {
+  if (timer) window.clearInterval(timer)
+})
 </script>
 
 <template>
   <div class="login-page">
-    <div class="wave" />
+    <div class="ambient ambient-left" />
+    <div class="ambient ambient-right" />
 
     <div class="wrap">
-      <div class="left">
-        <img class="illustration" :src="illustration" alt="illustration" />
-      </div>
+      <section class="login-shell">
+        <div class="showcase">
+        <div class="showcase-badge">License Management Console</div>
+        <h1 class="showcase-title">
+          <span class="title-line">{{ text }}</span>
+          <!-- <span class="title-sub">统一管理注册码、项目和安全策略</span> -->
+        </h1>
+        <p class="showcase-copy">
+          统一账户入口，保留现有认证流程。
+        </p>
 
-      <div class="right">
-        <div class="brand">
-          <div class="logo"><span class="drop" /></div>
-          <div class="brand-name">
-            <div class="titleunde"> {{ text }}</div> 
+          <!-- <div class="showcase-metrics">
+            <div class="metric-card">
+              <strong>01</strong>
+              <span>Unified Access</span>
+            </div>
+            <div class="metric-card">
+              <strong>02</strong>
+              <span>Project Driven</span>
+            </div>
+            <div class="metric-card">
+              <strong>03</strong>
+              <span>Risk Visibility</span>
+            </div>
+          </div> -->
+
+          <div class="illustration-panel">
+            <img class="illustration" :src="illustration" alt="illustration" />
           </div>
-          
         </div>
 
-        <div class="card">
-          <!-- <div class="card-title">{{ title }}</div> -->
-
-          <el-form v-if="mode === 'login'" :model="loginForm" class="form" @keyup.enter="handleLogin">
-            <el-form-item>
-              <el-input v-model="loginForm.username" placeholder="用户名" autocomplete="username" />
-            </el-form-item>
-            <el-form-item>
-              <el-input v-model="loginForm.password" placeholder="密码" type="password" show-password autocomplete="current-password" />
-            </el-form-item>
-
-            <div class="row">
-              <el-checkbox v-model="loginForm.remember" label="7天内免登录" />
-              <a class="link" @click.prevent="mode = 'forgot'">忘记密码？</a>
-            </div>
-
-            <el-button class="primary" :loading="loginForm.loading" @click="handleLogin">登录</el-button>
-
-            <div class="sub-actions">
-              <el-button class="sub" plain @click="mode = 'register'">注册</el-button>
-            </div>
-
-            <div class="divider"><span>第三方登录</span></div>
-            <div class="oauth-icons">
-              <span class="dot" />
-              <span class="dot" />
-              <span class="dot" />
-              <span class="dot" />
-            </div>
-          </el-form>
-
-          <el-form v-else-if="mode === 'register'" :model="registerForm" class="form" @keyup.enter="handleRegister">
-            <el-form-item>
-              <el-input v-model="registerForm.username" placeholder="用户名(3-32)" autocomplete="username" />
-            </el-form-item>
-            <el-form-item>
-              <el-input v-model="registerForm.email" placeholder="邮箱" autocomplete="email" />
-            </el-form-item>
-            <el-form-item>
-              <div class="code-row">
-                <el-input v-model="registerForm.emailCode" placeholder="邮箱验证码" />
-                <el-button class="code-btn" :disabled="countdown.register > 0" @click="sendEmailCode('register')">
-                  {{ countdown.register > 0 ? `${countdown.register}s` : '获取验证码' }}
-                </el-button>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="brand">
+              <div class="logo"><span class="drop" /></div>
+              <div>
+                <div class="brand-title">VerifySys</div>
+                <div class="brand-subtitle">{{ title }}</div>
               </div>
-            </el-form-item>
-            <el-form-item>
-              <el-input v-model="registerForm.password" placeholder="密码(6-64)" type="password" show-password autocomplete="new-password" />
-            </el-form-item>
-            <el-form-item>
-              <el-input v-model="registerForm.confirmPassword" placeholder="确认密码" type="password" show-password autocomplete="new-password" />
-            </el-form-item>
-
-            <el-button class="primary" :loading="registerForm.loading" @click="handleRegister">注册并登录</el-button>
-
-            <div class="row row-center">
-              <span class="muted">已有账号？</span>
-              <a class="link" @click.prevent="mode = 'login'">返回登录</a>
             </div>
-          </el-form>
+            <div class="panel-tip">Secure / Clear / Consistent</div>
+          </div>
 
-          <el-form v-else :model="forgotForm" class="form" @keyup.enter="handleResetPassword">
-            <el-form-item>
-              <el-input v-model="forgotForm.email" placeholder="邮箱" autocomplete="email" />
-            </el-form-item>
-            <el-form-item>
-              <div class="code-row">
-                <el-input v-model="forgotForm.emailCode" placeholder="邮箱验证码" />
-                <el-button class="code-btn" :disabled="countdown.reset > 0" @click="sendEmailCode('reset')">
-                  {{ countdown.reset > 0 ? `${countdown.reset}s` : '获取验证码' }}
-                </el-button>
+          <div class="card">
+            <div class="card-heading">
+              <h2>{{ title }}</h2>
+              <p>继续使用现有账户体系和认证流程</p>
+            </div>
+
+            <el-form v-if="mode === 'login'" :model="loginForm" class="form" @keyup.enter="handleLogin">
+              <el-form-item>
+                <el-input v-model="loginForm.username" placeholder="用户名" autocomplete="username" />
+              </el-form-item>
+              <el-form-item>
+                <el-input
+                  v-model="loginForm.password"
+                  placeholder="密码"
+                  type="password"
+                  show-password
+                  autocomplete="current-password"
+                />
+              </el-form-item>
+
+              <div class="row">
+                <el-checkbox v-model="loginForm.remember" label="7天内免登录" />
+                <a class="link" @click.prevent="mode = 'forgot'">忘记密码？</a>
               </div>
-            </el-form-item>
-            <el-form-item>
-              <el-input v-model="forgotForm.newPassword" placeholder="新密码(6-64)" type="password" show-password autocomplete="new-password" />
-            </el-form-item>
-            <el-form-item>
-              <el-input v-model="forgotForm.confirmPassword" placeholder="确认新密码" type="password" show-password autocomplete="new-password" />
-            </el-form-item>
 
-            <el-button class="primary" :loading="forgotForm.loading" @click="handleResetPassword">重置密码</el-button>
+              <el-button class="primary" :loading="loginForm.loading" @click="handleLogin">登录</el-button>
 
-            <div class="row row-center">
-              <a class="link" @click.prevent="mode = 'login'">返回登录</a>
-            </div>
-          </el-form>
+              <div class="sub-actions">
+                <el-button class="sub" text plain @click="mode = 'register'">注册</el-button>
+              </div>
+
+              <!-- <div class="divider"><span>第三方登录</span></div>
+              <div class="oauth-icons">
+                <span class="dot" />
+                <span class="dot" />
+                <span class="dot" />
+                <span class="dot" />
+              </div> -->
+            </el-form>
+
+            <el-form v-else-if="mode === 'register'" :model="registerForm" class="form" @keyup.enter="handleRegister">
+              <el-form-item>
+                <el-input v-model="registerForm.username" placeholder="用户名(3-32)" autocomplete="username" />
+              </el-form-item>
+              <el-form-item>
+                <el-input v-model="registerForm.email" placeholder="邮箱" autocomplete="email" />
+              </el-form-item>
+              <el-form-item>
+                <div class="code-row">
+                  <el-input v-model="registerForm.emailCode" placeholder="邮箱验证码" />
+                  <el-button class="code-btn" :disabled="countdown.register > 0" @click="sendEmailCode('register')">
+                    {{ countdown.register > 0 ? `${countdown.register}s` : '获取验证码' }}
+                  </el-button>
+                </div>
+              </el-form-item>
+              <el-form-item>
+                <el-input
+                  v-model="registerForm.password"
+                  placeholder="密码(6-64)"
+                  type="password"
+                  show-password
+                  autocomplete="new-password"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-input
+                  v-model="registerForm.confirmPassword"
+                  placeholder="确认密码"
+                  type="password"
+                  show-password
+                  autocomplete="new-password"
+                />
+              </el-form-item>
+
+              <el-button class="primary" :loading="registerForm.loading" @click="handleRegister">注册并登录</el-button>
+
+              <div class="row row-center">
+                <span class="muted">已有账号？</span>
+                <a class="link" @click.prevent="mode = 'login'">返回登录</a>
+              </div>
+            </el-form>
+
+            <el-form v-else :model="forgotForm" class="form" @keyup.enter="handleResetPassword">
+              <el-form-item>
+                <el-input v-model="forgotForm.email" placeholder="邮箱" autocomplete="email" />
+              </el-form-item>
+              <el-form-item>
+                <div class="code-row">
+                  <el-input v-model="forgotForm.emailCode" placeholder="邮箱验证码" />
+                  <el-button class="code-btn" :disabled="countdown.reset > 0" @click="sendEmailCode('reset')">
+                    {{ countdown.reset > 0 ? `${countdown.reset}s` : '获取验证码' }}
+                  </el-button>
+                </div>
+              </el-form-item>
+              <el-form-item>
+                <el-input
+                  v-model="forgotForm.newPassword"
+                  placeholder="新密码(6-64)"
+                  type="password"
+                  show-password
+                  autocomplete="new-password"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-input
+                  v-model="forgotForm.confirmPassword"
+                  placeholder="确认新密码"
+                  type="password"
+                  show-password
+                  autocomplete="new-password"
+                />
+              </el-form-item>
+
+              <el-button class="primary" :loading="forgotForm.loading" @click="handleResetPassword">重置密码</el-button>
+
+              <div class="row row-center">
+                <a class="link" @click.prevent="mode = 'login'">返回登录</a>
+              </div>
+            </el-form>
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
 .login-page {
-  min-height: 100vh;
-  background: #fff;
   position: relative;
+  min-height: 100vh;
   overflow: hidden;
-  background-image:url(../assets/cvr30x6grykgmziqfc.jpg);
+  background:
+    radial-gradient(circle at top left, rgba(47, 107, 255, 0.2), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(45, 212, 191, 0.18), transparent 28%),
+    linear-gradient(135deg, #edf4ff 0%, #f7fbff 44%, #eef4fb 100%);
 }
 
-.wave {
+.ambient {
   position: absolute;
-  left: -260px;
-  bottom: -360px;
-  width: 1100px;
-  height: 1100px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2f6bff, #2aa7ff);
-  opacity: 0.85;
+  filter: blur(12px);
+}
+
+.ambient-left {
+  width: 520px;
+  height: 520px;
+  left: -180px;
+  top: 80px;
+  background: rgba(47, 107, 255, 0.14);
+}
+
+.ambient-right {
+  width: 420px;
+  height: 420px;
+  right: -120px;
+  bottom: -100px;
+  background: rgba(56, 189, 248, 0.12);
 }
 
 .wrap {
   position: relative;
+  z-index: 1;
+  width: min(1280px, calc(100% - 40px));
   min-height: 100vh;
-  width: 1200px;
+  margin: 0 auto;
+  padding: 32px 0;
   display: flex;
   align-items: center;
-  margin:0 auto;
-  box-sizing: border-box;
 }
 
-.left {
+.login-shell {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) 440px;
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+}
+
+.showcase {
+  padding: 10px 12px;
+}
+
+.showcase-badge {
+  display: inline-flex;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(47, 107, 255, 0.1);
+  color: #1748cf;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.showcase-title {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 520px;
-  margin-left:-100px;
+  flex-direction: column;
+  gap: 8px;
+  margin: 18px 0 0;
+  color: #172033;
+}
+
+.title-line {
+  font-size: clamp(42px, 6vw, 68px);
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+  font-weight: 800;
+}
+
+.title-sub {
+  font-size: 18px;
+  line-height: 1.3;
+  color: #39506e;
+  font-weight: 600;
+}
+
+.showcase-copy {
+  max-width: 620px;
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #607089;
+}
+
+.showcase-metrics {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(247, 250, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.metric-card strong {
+  display: block;
+  font-size: 20px;
+  line-height: 1;
+  color: #1748cf;
+}
+
+.metric-card span {
+  display: block;
+  margin-top: 6px;
+  color: #607089;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.illustration-panel {
+  margin-top: 18px;
+  padding: 12px;
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(239, 246, 255, 0.88)),
+    radial-gradient(circle at top right, rgba(47, 107, 255, 0.12), transparent 34%);
+  border: 1px solid rgba(148, 163, 184, 0.16);
 }
 
 .illustration {
-  width: min(760px, 100%);
-  height: auto;
-  filter: drop-shadow(0 16px 30px rgba(17, 24, 39, 0.12));
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  filter: drop-shadow(0 16px 36px rgba(15, 23, 42, 0.12));
 }
 
-.right {
+.panel {
   display: flex;
-  width:440px;
   flex-direction: column;
-  align-items: center;
+  min-height: 100%;
+  padding: 12px;
   justify-content: center;
-  gap: 16px;
-  background: #fff; 
-  padding:  20px 20px; border-radius:10px;
-  box-shadow: 0 0 0.625rem rgba(0, 0, 0, 0.1);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .brand {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
 }
 
 .logo {
   width: 56px;
   height: 56px;
-  border-radius: 16px;
-  background: rgba(47, 107, 255, 0.08);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(47, 107, 255, 0.12), rgba(125, 211, 252, 0.18));
 }
 
 .drop {
   width: 22px;
   height: 22px;
+  display: inline-block;
   border-radius: 0 50% 50% 50%;
   transform: rotate(45deg);
   background: linear-gradient(180deg, #2aa7ff, #2f6bff);
-  display: inline-block;
 }
 
-.brand-name {
+.brand-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #172033;
+}
+
+.brand-subtitle {
+  margin-top: 4px;
+  color: #7a8aa2;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.8px;
-  color: #2f6bff;;
-  font-size:30px;
 }
 
-.brand-name span {
-  color: #2f6bff;
+.panel-tip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(247, 250, 255, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  color: #607089;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .card {
-  width: 100%;
-  max-width: 420px;
+  padding: 24px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.16);
 }
 
-.card-title {
-  text-align: center;
-  font-size: 22px;
-  font-weight: 800;
-  color:#0061fc;
-  margin: 14px 0;
-  
+.card-heading h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #172033;
 }
-.titleunde{
-    color:#0061fc;
-    display: inline-block;
-    position: relative;
-    &::before{
-      position: absolute;
-      content: "";
-      display: block;
-          z-index: 4;
-        width: 90%;
-        height: 0.25rem;
-        border-radius: 30rem;
-        mix-blend-mode: normal;
-        background: rgba(0, 119, 255, 0.3); bottom:2px;left:5%;
-    }
-  }
+
+.card-heading p {
+  margin: 8px 0 0;
+  color: #7a8aa2;
+  font-size: 13px;
+}
+
 .form {
-  width: 100%;
+  margin-top: 22px;
 }
 
 .primary {
   width: 100%;
-  height: 42px;
+  height: 46px;
   border: 0;
-  color: #fff;
-  background: linear-gradient(135deg, #2f6bff, #4b8bff);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2f6bff, #5b8cff);
+  color:#fff;
 }
 
 .row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: -4px 0 10px;
+  margin: -2px 0 14px;
 }
 
 .row-center {
   justify-content: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .muted {
-  color: #6b7280;
+  color: #7a8aa2;
   font-size: 12px;
 }
 
 .link {
-  color: #2f6bff;
+  color: #1748cf;
   cursor: pointer;
   font-size: 12px;
-  text-decoration: none;
+  font-weight: 700;
 }
 
 .sub-actions {
   display: flex;
   justify-content: center;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .sub {
-  width: 120px;
+  width: 140px;
+  height: 42px;
+  border-radius: 14px;
 }
 
 .divider {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 14px 0 10px;
-  color: #9ca3af;
+  margin: 18px 0 12px;
+  color: #9aa8bd;
   font-size: 12px;
 }
 
 .divider::before,
 .divider::after {
   content: '';
-  height: 1px;
-  background: #e5e7eb;
   flex: 1;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.24);
 }
 
 .oauth-icons {
@@ -501,58 +687,108 @@ const handleResetPassword = async () => {
 }
 
 .dot {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  display: inline-block;
+  background: rgba(247, 250, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.18);
 }
 
 .code-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr 118px;
+  grid-template-columns: 1fr 128px;
   gap: 10px;
 }
 
 .code-btn {
-  height: 42px;
-}
-
-:deep(.el-input__wrapper) {
-  border-radius: 4px;
-  background: #e8f0fe;
-}
-
-:deep(.el-input__inner) {
-  height: 42px;
+  height: 46px;
+  border-radius: 14px;
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
-@media (max-width: 960px) {
+:deep(.el-input__wrapper) {
+  min-height: 46px;
+  border-radius: 16px;
+  background: #fff;
+  padding: 0 20px;
+}
+
+/* :deep(.el-input__inner) {
+  height: 46px;
+  line-height: 46px;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+:deep(.el-textarea__inner) {
+  padding: 12px 16px;
+  line-height: 1.65;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 600;
+} */
+
+:deep(.el-input__inner),
+:deep(.el-textarea__inner) {
+  background: transparent !important;
+}
+
+:deep(input:-webkit-autofill),
+:deep(input:-webkit-autofill:hover),
+:deep(input:-webkit-autofill:focus) {
+  -webkit-text-fill-color: #172033;
+  -webkit-box-shadow: 0 0 0 1000px #fff inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+:deep(.el-checkbox__label) {
+  color: #607089;
+}
+
+@media (max-width: 1120px) {
   .wrap {
-    width: 100%;
-    padding: 22px 16px;
+    width: min(860px, calc(100% - 28px));
+    padding: 20px 0 28px;
   }
-  .left {
-    display: none;
+
+  .login-shell {
+    grid-template-columns: 1fr;
   }
-  .right {
-    width: 100%;
+}
+
+@media (max-width: 720px) {
+  .login-shell {
+    padding: 20px;
+    border-radius: 24px;
   }
+
+  .showcase,
+  .panel,
   .card {
-    max-width: 460px;
+    padding: 0;
   }
-  .wave {
-    left: -420px;
-    bottom: -520px;
-    width: 1200px;
-    height: 1200px;
-    opacity: 0;
+
+  .card {
+    margin-top: 8px;
+    padding-top: 20px;
+  }
+
+  .showcase-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .code-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

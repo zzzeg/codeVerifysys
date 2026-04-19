@@ -1,257 +1,116 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
-interface ProjectOption {
-  id: string
-  name: string
-}
+const route = useRoute()
+const router = useRouter()
 
-interface CustomDataItem {
-  id: string
-  projectId: string
-  projectName?: string
-  key: string
-  value: string
-  remark?: string
-}
-
-const list = ref<CustomDataItem[]>([])
-const loading = ref(false)
-const total = ref(0)
-const projects = ref<ProjectOption[]>([])
-
-const query = reactive({
-  projectId: '',
-  key: '',
-  remark: '',
-  page: 1,
-  pageSize: 10,
+const currentTitle = computed(() => {
+  if (route.name === 'custom-data-create') return '新增自定义数据'
+  if (route.name === 'custom-data-edit') return '编辑自定义数据'
+  if (route.name === 'custom-data-help') return '使用说明'
+  return '自定义数据管理'
 })
 
-const dialogVisible = ref(false)
-const editingId = ref<string | null>(null)
-const form = reactive<Partial<CustomDataItem>>({
-  projectId: '',
-  key: '',
-  value: '',
-  remark: '',
-})
+const sideItems = [
+  { label: '数据列表', path: '/custom-data/list', names: ['custom-data-list'] },
+  { label: '新增数据', path: '/custom-data/create', names: ['custom-data-create'] },
+  { label: '使用说明', path: '/custom-data/help', names: ['custom-data-help'] },
+]
 
-const fetchProjects = async () => {
-  try {
-    const resp = await request.get('/api/projects')
-    const rows = (resp.data.data.list || resp.data.data || []) as any[]
-    projects.value = rows.map((r) => ({ id: r.id, name: r.name }))
-    if (!query.projectId && projects.value.length) query.projectId = ''
-    if (!form.projectId && projects.value.length) form.projectId = projects.value[0]?.id || ''
-  } catch (e) {
-    console.error(e)
-  }
+const isActive = (names: string[]) => names.includes(String(route.name || ''))
+
+const navigateTo = (path: string) => {
+  if (route.path !== path) router.push(path)
 }
-
-const fetchData = async () => {
-  loading.value = true
-  try {
-    const params: any = {
-      page: query.page,
-      pageSize: query.pageSize,
-    }
-    if (query.projectId) params.projectId = query.projectId
-    if (query.key) params.key = query.key
-    if (query.remark) params.remark = query.remark
-
-    const resp = await request.get('/api/custom-data', { params })
-    list.value = resp.data.data.list || []
-    total.value = resp.data.data.total || 0
-  } finally {
-    loading.value = false
-  }
-}
-
-const handleSearch = () => {
-  query.page = 1
-  fetchData()
-}
-
-const resetSearch = () => {
-  query.projectId = ''
-  query.key = ''
-  query.remark = ''
-  query.page = 1
-  query.pageSize = 10
-  fetchData()
-}
-
-const handlePageChange = (page: number) => {
-  query.page = page
-  fetchData()
-}
-
-const handleSizeChange = (size: number) => {
-  query.pageSize = size
-  query.page = 1
-  fetchData()
-}
-
-const openDialog = (row?: CustomDataItem) => {
-  editingId.value = row?.id || null
-  Object.assign(form, row || { projectId: projects.value[0]?.id || '', key: '', value: '', remark: '' })
-  dialogVisible.value = true
-}
-
-const saveData = async () => {
-  if (!form.projectId) return ElMessage.warning('请选择项目')
-  if (!form.key) return ElMessage.warning('请输入 Key')
-
-  if (editingId.value) {
-    await request.put(`/api/custom-data/${editingId.value}`, {
-      projectId: form.projectId,
-      key: form.key,
-      value: form.value,
-      remark: form.remark,
-    })
-  } else {
-    await request.post('/api/custom-data', {
-      projectId: form.projectId,
-      key: form.key,
-      value: form.value,
-      remark: form.remark,
-    })
-  }
-  ElMessage.success('保存成功')
-  dialogVisible.value = false
-  fetchData()
-}
-
-const removeData = async (row: CustomDataItem) => {
-  await ElMessageBox.confirm(`删除键 ${row.key} 吗？`, '提示', { type: 'warning' })
-  await request.delete(`/api/custom-data/${row.id}`)
-  ElMessage.success('已删除')
-  fetchData()
-}
-
-onMounted(async () => {
-  await fetchProjects()
-  await fetchData()
-})
 </script>
 
 <template>
-  <div class="page">
-    <el-card>
-      <template #header>
-        <div class="toolbar">
-          <div>
-            <div class="title">自定义数据</div>
-            <div class="sub">以 Key-Value 形式管理项目扩展字段</div>
-          </div>
-          <el-button type="primary" @click="openDialog()">新增数据</el-button>
+  <div class="vs-ref-shell">
+    <div class="vs-ref-frame auto-frame">
+      <aside class="auto-side">
+        <div class="auto-side-head">自定义数据</div>
+        <div class="auto-side-body">
+          <button
+            v-for="item in sideItems"
+            :key="item.path"
+            type="button"
+            class="auto-side-link"
+            :class="{ active: isActive(item.names) }"
+            @click="navigateTo(item.path)"
+          >
+            > {{ item.label }}
+          </button>
         </div>
-      </template>
+      </aside>
 
-      <div class="search-bar">
-        <span class="label">项目名称：</span>
-        <el-select v-model="query.projectId" filterable style="width: 200px">
-          <el-option label="-所有项目-" value="" />
-          <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
-        </el-select>
-        <span class="label">key值：</span>
-        <el-input v-model="query.key" style="width: 220px" clearable />
-        <span class="label">备注：</span>
-        <el-input v-model="query.remark" style="width: 220px" clearable />
-        <el-button type="primary" @click="handleSearch">查询</el-button>
-        <el-button @click="resetSearch">重置</el-button>
-      </div>
-
-      <el-table :data="list" v-loading="loading" style="width: 100%" border>
-        <el-table-column prop="projectName" label="项目名称" width="160" />
-        <el-table-column prop="key" label="Key" />
-        <el-table-column prop="value" label="Value" />
-        <el-table-column prop="remark" label="备注" width="200" />
-        <el-table-column label="操作" width="200">
-          <template #default="{ row }">
-            <el-button size="small" @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="removeData(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="pager">
-        <el-pagination
-          v-model:current-page="query.page"
-          v-model:page-size="query.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handlePageChange"
-          @size-change="handleSizeChange"
-          prev-text="上一页"
-          next-text="下一页"
-        />
-      </div>
-    </el-card>
-
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑数据' : '新增数据'" width="520px">
-      <el-form :model="form" label-width="90px">
-        <el-form-item label="项目名称">
-          <el-select v-model="form.projectId" filterable style="width: 100%">
-            <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Key">
-          <el-input v-model="form.key" />
-        </el-form-item>
-        <el-form-item label="Value">
-          <el-input v-model="form.value" type="textarea" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="form.remark" type="textarea" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveData">保存</el-button>
-      </template>
-    </el-dialog>
+      <section class="vs-ref-main">
+        <div class="vs-ref-main-head">
+          <h2 class="vs-ref-main-title">{{ currentTitle }}</h2>
+        </div>
+        <div class="vs-ref-main-body">
+          <router-view />
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.page {
+.auto-frame {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height:100%;
+  min-height: 0;
+  flex-direction: row;
 }
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+
+.auto-side {
+  width: 224px;
+  border-right: 1px solid var(--vs-border);
+  background: rgba(255, 255, 255, 0.78);
 }
-.title {
+
+.auto-side-head {
+  padding: 14px 16px;
+  font-size: 15px;
   font-weight: 700;
+  color: #fff;
+  background: linear-gradient(90deg, var(--vs-primary) 0%, var(--vs-primary-strong) 100%);
 }
-.sub {
-  color: #6b7280;
-  font-size: 12px;
+
+.auto-side-body {
+  padding: 8px;
 }
-.search-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 32px;
-  flex-wrap: wrap;
+
+.auto-side-link {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #4b5563;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
-.label {
-  color: #303133;
-  font-size: 13px;
-  white-space: nowrap;
+
+.auto-side-link:hover {
+  background: rgba(249, 250, 251, 0.9);
 }
-.pager {
-  display: flex;
-  justify-content: center;
-  padding: 16px 0 0;
+
+.auto-side-link.active {
+  background: rgba(243, 244, 246, 0.96);
+  color: #111827;
+}
+
+@media (max-width: 980px) {
+  .auto-frame {
+    flex-direction: column;
+  }
+
+  .auto-side {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--vs-border);
+  }
 }
 </style>

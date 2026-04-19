@@ -1,125 +1,113 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
-interface RoleItem {
-  id: string
-  name: string
-  description?: string
-  permissions: string[]
-}
+const route = useRoute()
+const router = useRouter()
 
-const list = ref<RoleItem[]>([])
-const loading = ref(false)
-const dialogVisible = ref(false)
-const editingId = ref<string | null>(null)
-const form = reactive<Partial<RoleItem>>({
-  name: '',
-  description: '',
-  permissions: [],
+const currentTitle = computed(() => {
+  if (route.name === 'roles-create') return '新增角色'
+  if (route.name === 'roles-edit') return '编辑角色'
+  return '角色管理'
 })
 
-const fetchRoles = async () => {
-  loading.value = true
-  try {
-    const resp = await request.get('/api/roles')
-    list.value = resp.data.data
-  } finally {
-    loading.value = false
-  }
-}
+const sideItems = [
+  { label: '角色列表', path: '/roles/list', names: ['roles-list'] },
+  { label: '新增角色', path: '/roles/create', names: ['roles-create'] },
+]
 
-const openDialog = (row?: RoleItem) => {
-  editingId.value = row?.id || null
-  Object.assign(form, {
-    name: row?.name || '',
-    description: row?.description || '',
-    permissions: row?.permissions || [],
-  })
-  dialogVisible.value = true
+const isActive = (names: string[]) => names.includes(String(route.name || ''))
+const navigateTo = (path: string) => {
+  if (route.path !== path) router.push(path)
 }
-
-const saveRole = async () => {
-  const payload = { ...form, permissions: (form.permissions as string[] | undefined) || [] }
-  if (typeof payload.permissions === 'string') {
-    payload.permissions = (payload.permissions as unknown as string).split(',').map((v) => v.trim())
-  }
-  if (editingId.value) {
-    await request.put(`/api/roles/${editingId.value}`, payload)
-    ElMessage.success('更新成功')
-  } else {
-    await request.post('/api/roles', payload)
-    ElMessage.success('创建成功')
-  }
-  dialogVisible.value = false
-  fetchRoles()
-}
-
-const removeRole = async (row: RoleItem) => {
-  await ElMessageBox.confirm(`确定删除角色 ${row.name} 吗？`, '提示', { type: 'warning' })
-  await request.delete(`/api/roles/${row.id}`)
-  ElMessage.success('已删除')
-  fetchRoles()
-}
-
-onMounted(fetchRoles)
 </script>
 
 <template>
-  <el-card>
-    <template #header>
-      <div class="toolbar">
-        <div>角色管理</div>
-        <el-button type="primary" @click="openDialog()">新增角色</el-button>
-      </div>
-    </template>
-    <el-table :data="list" v-loading="loading" style="width: 100%">
-      <el-table-column prop="name" label="名称" />
-      <el-table-column prop="description" label="描述" />
-      <el-table-column label="权限">
-        <template #default="{ row }">
-          <el-tag v-for="p in row.permissions" :key="p" type="info" style="margin-right: 4px">{{ p }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="200">
-        <template #default="{ row }">
-          <el-button size="small" @click="openDialog(row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="removeRole(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-  </el-card>
+  <div class="vs-ref-shell">
+    <div class="vs-ref-frame auto-frame">
+      <aside class="auto-side">
+        <div class="auto-side-head">角色管理</div>
+        <div class="auto-side-body">
+          <button
+            v-for="item in sideItems"
+            :key="item.path"
+            type="button"
+            class="auto-side-link"
+            :class="{ active: isActive(item.names) }"
+            @click="navigateTo(item.path)"
+          >
+            > {{ item.label }}
+          </button>
+        </div>
+      </aside>
 
-  <el-dialog v-model="dialogVisible" :title="editingId ? '编辑角色' : '新增角色'" width="460px">
-    <el-form :model="form" label-width="90px">
-      <el-form-item label="名称">
-        <el-input v-model="form.name" />
-      </el-form-item>
-      <el-form-item label="描述">
-        <el-input v-model="form.description" />
-      </el-form-item>
-      <el-form-item label="权限标识">
-        <el-select v-model="form.permissions" multiple filterable allow-create default-first-option style="width: 100%">
-          <el-option label="dashboard" value="dashboard" />
-          <el-option label="users" value="users" />
-          <el-option label="codes" value="codes" />
-          <el-option label="projects" value="projects" />
-          <el-option label="products" value="products" />
-        </el-select>
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="dialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="saveRole">保存</el-button>
-    </template>
-  </el-dialog>
+      <section class="vs-ref-main">
+        <div class="vs-ref-main-head">
+          <h2 class="vs-ref-main-title">{{ currentTitle }}</h2>
+        </div>
+        <div class="vs-ref-main-body">
+          <router-view />
+        </div>
+      </section>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.toolbar {
+.auto-frame {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  min-height: 0;
+  flex-direction: row;
+}
+
+.auto-side {
+  width: 224px;
+  border-right: 1px solid var(--vs-border);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.auto-side-head {
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(90deg, var(--vs-primary) 0%, var(--vs-primary-strong) 100%);
+}
+
+.auto-side-body {
+  padding: 8px;
+}
+
+.auto-side-link {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #4b5563;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.auto-side-link:hover {
+  background: rgba(249, 250, 251, 0.9);
+}
+
+.auto-side-link.active {
+  background: rgba(243, 244, 246, 0.96);
+  color: #111827;
+}
+
+@media (max-width: 980px) {
+  .auto-frame {
+    flex-direction: column;
+  }
+
+  .auto-side {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--vs-border);
+  }
 }
 </style>

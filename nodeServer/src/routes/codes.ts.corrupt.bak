@@ -1,0 +1,754 @@
+import { Router } from "express";
+import {
+  uuid,
+  randomCode32,
+  type RegisterCode,
+  type CodeStatus,
+} from "../db";
+import { respond, respondError, authMiddleware } from "../middlewares/auth";
+import { execute, query, queryOne, withTransaction } from "../db/mysql";
+import { table } from "../db/tables";
+
+const router = Router();
+router.use(authMiddleware);
+
+const cardTypeExpireMsSqlCase = (cardTypeCol: string) => {
+  const day = 86400000;
+  return `CASE ${cardTypeCol}
+    WHEN 'trial' THEN ${1 * day}
+    WHEN 'hour' THEN ${3600000}
+    WHEN 'day' THEN ${1 * day}
+    WHEN 'week' THEN ${7 * day}
+    WHEN 'month' THEN ${30 * day}
+    WHEN 'quarter' THEN ${90 * day}
+    WHEN 'half_year' THEN ${180 * day}
+    WHEN 'year' THEN ${365 * day}
+    WHEN 'permanent' THEN ${3650 * day}
+    ELSE ${30 * day}
+  END`;
+};
+
+const syncCodeExpireAndStatus = async (now: number) => {
+  const durationCase = cardTypeExpireMsSqlCase("card_type");
+
+  // 1) 鍙宸叉縺娲荤殑娉ㄥ唽鐮佽绠?淇 expire_at锛歟xpire_at = max(expire_at, activated_at + 鍗℃椂闀?
+  await execute(
+    `UPDATE ${table("register_codes")}
+     SET expire_at = GREATEST(IFNULL(expire_at, 0), activated_at + ${durationCase})
+     WHERE activated_at IS NOT NULL
+       AND status <> 'deleted'
+       AND (expire_at IS NULL OR expire_at < activated_at + ${durationCase})`,
+    []
+  );
+
+  // 2) 杩囨湡鍒ゆ柇锛氫粎宸叉縺娲绘墠浼氳繃鏈?
+  await execute(
+    `UPDATE ${table("register_codes")}
+     SET status = 'expired'
+     WHERE status NOT IN ('deleted','expired')
+       AND activated_at IS NOT NULL
+       AND expire_at IS NOT NULL
+       AND expire_at < ?`,
+    [now]
+  );
+
+  // 3) 宸叉縺娲讳笖鏈繃鏈熺殑锛岀姸鎬佷慨姝ｄ负 in_use锛堥伩鍏嶆縺娲诲悗浠嶆樉绀?unused锛?
+  await execute(
+    `UPDATE ${table("register_codes")}
+     SET status = 'in_use'
+     WHERE status = 'unused'
+       AND activated_at IS NOT NULL
+       AND (expire_at IS NULL OR expire_at >= ?)`,
+    [now]
+  );
+};
+
+const mapCodeRow = (r: any): RegisterCode => ({
+  id: r.id,
+  code: r.code,
+  projectId: r.project_id,
+  projectName: r.project_name,
+  cardType: r.card_type,
+  status: r.status,
+  isOnline: Boolean(r.is_online),
+  isBound: Boolean(r.is_bound),
+  saleType:r.sale_type,
+  machineCode: r.machine_code || undefined,
+  lastLoginIp: r.last_login_ip || undefined,
+  lastLoginAt: r.last_login_at ? Number(r.last_login_at) : undefined,
+  activatedAt: r.activated_at ? Number(r.activated_at) : undefined,
+  unbindPassword: r.unbind_password || undefined,
+  customerInfo: r.customer_info || undefined,
+  remark: r.remark || undefined,
+  expireAt: r.activated_at
+    ? Math.max(r.expire_at ? Number(r.expire_at) : 0, Number(r.activated_at) + cardTypeExpireMs(r.card_type))
+    : undefined,
+  createdAt: Number(r.created_at),
+});
+
+const cardTypeExpireMs = (cardType: string) => {
+  const day = 86400000;
+  switch (cardType) {
+    case "trial":
+      return 1 * day;
+    case "hour":
+      return 3600000;
+    case "day":
+      return 1 * day;
+    case "week":
+      return 7 * day;
+    case "month":
+      return 30 * day;
+    case "quarter":
+      return 90 * day;
+    case "half_year":
+      return 180 * day;
+    case "year":
+      return 365 * day;
+    case "permanent":
+      return 3650 * day; // 10 骞?
+    default:
+      return 30 * day;
+  }
+};
+
+// 鍋囪浣犵敤鍒扮殑渚濊禆鍜岀被鍨嬪凡缁忓畾涔夛紙uuid銆乹ueryOne銆亀ithTransaction銆乼able銆乧ardTypeExpireMs銆乺espond銆乺espondError銆丷egisterCode锛?
+const normalizeImportDelimiter = (value: string | undefined) => {
+  if (value === "tab") return "\t";
+  if (value === ";") return ";";
+  return ",";
+};
+
+const normalizeImportCardType = (value?: string | null) => {
+  const raw = (value || "").trim().toLowerCase();
+  if (!raw) return "";
+
+  const map: Record<string, string> = {
+    trial: "trial",
+    "璇曠敤鍗?: "trial",
+    hour: "hour",
+    "灏忔椂鍗?: "hour",
+    "灏忔檪鍗?: "hour",
+    day: "day",
+    "澶╁崱": "day",
+    week: "week",
+    "鍛ㄥ崱": "week",
+    month: "month",
+    "鏈堝崱": "month",
+    quarter: "quarter",
+    "瀛ｅ崱": "quarter",
+    half_year: "half_year",
+    halfyear: "half_year",
+    "鍗婂勾鍗?: "half_year",
+    year: "year",
+    "骞村崱": "year",
+    permanent: "permanent",
+    "姘镐箙鍗?: "permanent",
+  };
+
+  return map[raw] || "";
+};
+
+const inferCardTypeFromExpire = (activatedAt?: number | null, expireAt?: number | null) => {
+  if (!activatedAt || !expireAt || expireAt <= activatedAt) return "hour";
+  const duration = expireAt - activatedAt;
+  const entries = [
+    ["hour", cardTypeExpireMs("hour")],
+    ["day", cardTypeExpireMs("day")],
+    ["week", cardTypeExpireMs("week")],
+    ["month", cardTypeExpireMs("month")],
+    ["quarter", cardTypeExpireMs("quarter")],
+    ["half_year", cardTypeExpireMs("half_year")],
+    ["year", cardTypeExpireMs("year")],
+    ["permanent", cardTypeExpireMs("permanent")],
+  ] as const;
+
+  let best = "hour";
+  let minDiff = Number.MAX_SAFE_INTEGER;
+  for (const [name, ms] of entries) {
+    const diff = Math.abs(duration - ms);
+    if (diff < minDiff) {
+      minDiff = diff;
+      best = name;
+    }
+  }
+  return best;
+};
+
+const parseImportTime = (value?: string | null) => {
+  const raw = (value || "").trim();
+  if (!raw || raw.toLowerCase() === "null") return null;
+  const parsed = Date.parse(raw.replace(/\//g, "-"));
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+router.post("/import", async (req, res) => {
+  const { projectId, delimiter, content } = req.body || {};
+  if (!projectId) return respondError(res, "椤圭洰涓嶈兘涓虹┖", 400);
+  if (typeof content !== "string" || !content.trim()) return respondError(res, "瀵煎叆鍐呭涓嶈兘涓虹┖", 400);
+
+  const project = await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE id = ?`, [projectId]);
+  if (!project) return respondError(res, "椤圭洰涓嶅瓨鍦?, 400);
+
+  const separator = normalizeImportDelimiter(delimiter);
+  const lines = content
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line: string) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) return respondError(res, "瀵煎叆鍐呭涓嶈兘涓虹┖", 400);
+
+  const now = Date.now();
+  const items: RegisterCode[] = [];
+
+  try {
+    await withTransaction(async (conn) => {
+      for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+        const parts = line.split(separator).map((part) => part.trim());
+        const code = (parts[0] || "").trim();
+        const activatedAt = parseImportTime(parts[1]);
+        const expireAt = parseImportTime(parts[2]);
+        const normalizedCardType = normalizeImportCardType(parts[3]);
+
+        if (!code) throw new Error(`绗?${index + 1} 琛屾敞鍐岀爜涓虹┖`);
+        if ((parts[1] || "").trim() && activatedAt === null) throw new Error(`绗?${index + 1} 琛屾縺娲绘椂闂存牸寮忎笉姝ｇ‘`);
+        if ((parts[2] || "").trim() && expireAt === null) throw new Error(`绗?${index + 1} 琛屽埌鏈熸椂闂存牸寮忎笉姝ｇ‘`);
+        if (!normalizedCardType && !expireAt) throw new Error(`绗?${index + 1} 琛岀己灏戝崱绫诲瀷`);
+
+        const cardType = normalizedCardType || inferCardTypeFromExpire(activatedAt, expireAt);
+        const status: CodeStatus = !activatedAt ? "unused" : expireAt && expireAt < now ? "expired" : "in_use";
+        const id = uuid();
+
+        try {
+          await conn.execute(
+            `INSERT INTO ${table("register_codes")}
+             (
+               id, code, project_id, project_name, card_type,
+               status, is_online, is_bound, machine_code, last_login_ip,
+               last_login_at, activated_at, unbind_password,
+               sale_type, remark, expire_at, created_at
+             )
+             VALUES (
+               ?, ?, ?, ?, ?,
+               ?, 0, 0, NULL, NULL,
+               NULL, ?, NULL,
+               ?, NULL, ?, ?
+             )`,
+            [
+              id,
+              code,
+              project.id,
+              project.name,
+              cardType,
+              status,
+              activatedAt,
+              "author_generated",
+              expireAt,
+              now,
+            ]
+          );
+        } catch (err: any) {
+          if (String(err?.code || "").includes("ER_DUP_ENTRY")) {
+            throw new Error(`绗?${index + 1} 琛屾敞鍐岀爜 ${code} 宸插瓨鍦╜);
+          }
+          throw err;
+        }
+
+        items.push({
+          id,
+          code,
+          projectId: project.id,
+          projectName: project.name,
+          cardType,
+          status,
+          isOnline: false,
+          isBound: false,
+          saleType: "author_generated",
+          activatedAt: activatedAt ?? undefined,
+          expireAt: expireAt ?? undefined,
+          createdAt: now,
+        });
+      }
+    });
+  } catch (err: any) {
+    return respondError(res, err?.message || "瀵煎叆澶辫触", 400);
+  }
+
+  return respond(res, { imported: items.length, items });
+});
+
+router.post("/generate", async (req, res) => {
+  const { count = 1, projectId, projectName, saletype, remark, cardType = "month" } = req.body || {};
+  const taskId = uuid();
+  const generated: string[] = [];
+  const items: RegisterCode[] = [];
+
+  // 鏍规嵁projectId鎴杙rojectName鏌ヨ椤圭洰
+  const project =
+    (projectId
+      ? await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE id = ?`, [projectId])
+      : undefined) ||
+    (projectName
+      ? await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE name = ?`, [projectName])
+      : undefined);
+
+  if (!project) return respondError(res, "椤圭洰涓嶅瓨鍦?, 400);
+
+  const resolvedProjectId = project.id;
+  const resolvedProjectName = project.name;
+  const now = Date.now();
+  const expireAt = null;
+
+  // 浜嬪姟鍐呯敓鎴愭敞鍐岀爜
+  await withTransaction(async (conn) => {
+    // 闄愬埗鐢熸垚鏁伴噺锛?~5000
+    const max = Math.min(Math.max(Number(count) || 1, 1), 5000);
+    for (let i = 0; i < max; i++) {
+      let ok = false;
+      let codeValue = "";
+      // 鏈€澶氬皾璇?娆★紙閬垮厤code閲嶅锛?
+      for (let attempt = 0; attempt < 5; attempt++) {
+        codeValue = randomCode32();
+        try {
+          const id = uuid();
+          // 鏍稿績淇锛氬崰浣嶇涓庡弬鏁颁弗鏍间竴涓€瀵瑰簲
+          await conn.execute(
+            `INSERT INTO ${table("register_codes")}
+             (
+               id, code, project_id, project_name, card_type, 
+               status, is_online, is_bound, machine_code, last_login_ip, 
+               last_login_at, activated_at, unbind_password, 
+               sale_type, remark, expire_at, created_at
+             )
+             VALUES (
+               ?, ?, ?, ?, ?, 
+               'unused', 0, 0, NULL, NULL, 
+               NULL, NULL, NULL, 
+               ?, ?, ?, ?
+             )`,
+            [
+              // 鍓?涓弬鏁帮細瀵瑰簲id, code, project_id, project_name, card_type
+              id,
+              codeValue,
+              resolvedProjectId,
+              resolvedProjectName,
+              cardType,
+              // 鍚?涓弬鏁帮細瀵瑰簲sale_type, remark, expire_at, created_at锛堝叧閿細椤哄簭瀹屽叏鍖归厤锛?
+              saletype,        // 瀵瑰簲sale_type鐨?
+              remark || null,  // 瀵瑰簲remark鐨?
+              expireAt,        // 瀵瑰簲expire_at鐨?
+              now              // 瀵瑰簲created_at鐨?
+            ]
+          );
+
+          // 缁勮杩斿洖鐨勬敞鍐岀爜淇℃伅
+          const item: RegisterCode = {
+            id,
+            code: codeValue,
+            projectId: resolvedProjectId,
+            projectName: resolvedProjectName,
+            cardType,
+            status: "unused",
+            isOnline: false,
+            isBound: false,
+            saleType: saletype || "author_generated", // 杩欓噷鐨剆aleType鏄纭殑
+            remark: remark || undefined,
+            createdAt: now,
+          };
+          items.push(item);
+          generated.push(codeValue);
+          ok = true;
+          break;
+        } catch (err: any) {
+          // 鎹曡幏鍞竴绱㈠紩鍐茬獊锛坈ode閲嶅锛夛紝缁х画閲嶈瘯
+          if (String(err?.code || "").includes("ER_DUP_ENTRY")) continue;
+          // 鍏朵粬閿欒鐩存帴鎶涘嚭
+          throw err;
+        }
+      }
+      if (!ok) throw new Error("鐢熸垚娉ㄥ唽鐮佸け璐ワ細澶氭灏濊瘯浠嶅啿绐?);
+    }
+  });
+
+  return respond(res, { taskId, generated, items });
+});
+
+
+router.get("/export", async (_req, res) => {
+  await syncCodeExpireAndStatus(Date.now());
+  const rows = await query(`SELECT * FROM ${table("register_codes")} ORDER BY created_at DESC`);
+  return respond(res, { items: rows.map(mapCodeRow) });
+});
+
+router.get("/stats", async (_req, res) => {
+  await syncCodeExpireAndStatus(Date.now());
+  const rows = await query<{ status: string; c: number }>(
+    `SELECT status, COUNT(*) as c FROM ${table("register_codes")} GROUP BY status`
+  );
+  const stats = { total: 0, inUse: 0, unused: 0, frozen: 0, expired: 0, deleted: 0 };
+  for (const r of rows) {
+    stats.total += Number((r as any).c || 0);
+    switch ((r as any).status) {
+      case "in_use":
+        stats.inUse += Number((r as any).c || 0);
+        break;
+      case "unused":
+        stats.unused += Number((r as any).c || 0);
+        break;
+      case "frozen":
+        stats.frozen += Number((r as any).c || 0);
+        break;
+      case "expired":
+        stats.expired += Number((r as any).c || 0);
+        break;
+      case "deleted":
+        stats.deleted += Number((r as any).c || 0);
+        break;
+    }
+  }
+  return respond(res, stats);
+});
+
+router.delete("/cleanup-expired", async (_req, res) => {
+  const now = Date.now();
+  await syncCodeExpireAndStatus(now);
+  await execute(
+    `UPDATE ${table("register_codes")}
+     SET status = 'deleted'
+     WHERE status = 'expired' AND expire_at IS NOT NULL AND expire_at < ?`,
+    [now]
+  );
+  return respond(res, {});
+});
+
+router.get("/", async (req, res) => {
+  const {
+    status,
+    projectId,
+    keyword,
+    code,
+    machineCode,
+    cardType,
+    isOnline,
+    isBound,
+    saleType,
+    timeType,
+    startTime,
+    endTime,
+    page = "1",
+    pageSize = "10",
+  } = req.query as Record<string, string>;
+
+  const now = Date.now();
+  await syncCodeExpireAndStatus(now);
+
+  const where: string[] = [];
+  const params: any[] = [];
+
+  const kw = (keyword || code || "").trim();
+  if (kw) {
+    where.push("code LIKE ?");
+    params.push(`%${kw}%`);
+  }
+  if (projectId) {
+    where.push("project_id = ?");
+    params.push(projectId);
+  }
+  if (machineCode) {
+    where.push("machine_code LIKE ?");
+    params.push(`%${machineCode}%`);
+  }
+
+  if (status) {
+    const statuses = status.split(",").map((s) => s.trim()).filter(Boolean);
+    if (statuses.length) {
+      where.push(`status IN (${statuses.map(() => "?").join(",")})`);
+      params.push(...statuses);
+    }
+  }
+
+  if (cardType) {
+    const types = cardType.split(",").map((s) => s.trim()).filter(Boolean);
+    if (types.length) {
+      where.push(`card_type IN (${types.map(() => "?").join(",")})`);
+      params.push(...types);
+    }
+  }
+
+  if (typeof isOnline !== "undefined" && isOnline !== "") {
+    const online = isOnline === "true" || isOnline === "1";
+    where.push("is_online = ?");
+    params.push(online ? 1 : 0);
+  }
+
+  if (typeof isBound !== "undefined" && isBound !== "") {
+    const bound = isBound === "true" || isBound === "1";
+    where.push("is_bound = ?");
+    params.push(bound ? 1 : 0);
+  }
+
+  if (saleType) {
+    where.push("sale_type = ?");
+    params.push(saleType);
+  }
+
+  const startTs = startTime ? Date.parse(startTime) : NaN;
+  const endTs = endTime ? Date.parse(endTime) : NaN;
+  if (!Number.isNaN(startTs) && !Number.isNaN(endTs) && timeType) {
+    const col = timeType === "expired" ? "expire_at" : timeType === "lastLogin" ? "last_login_at" : "activated_at";
+    where.push(`${col} IS NOT NULL AND ${col} BETWEEN ? AND ?`);
+    params.push(startTs, endTs);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const size = Math.min(Math.max(parseInt(pageSize, 10) || 10, 1), 200);
+  const offset = (pageNum - 1) * size;
+
+  const totalRow = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("register_codes")} ${whereSql}`, params);
+  const rows = await query(`SELECT * FROM ${table("register_codes")} ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [
+    ...params,
+    size,
+    offset,
+  ]);
+
+  return respond(res, { total: totalRow?.c || 0, list: rows.map(mapCodeRow) });
+});
+
+const sqlPlaceholders = (count: number) => Array.from({ length: count }, () => "?").join(",");
+
+const updateCodeStatus = async (ids: string[], status: CodeStatus) => {
+  if (!ids.length) return;
+  await execute(
+    `UPDATE ${table("register_codes")} SET status = ? WHERE id IN (${sqlPlaceholders(ids.length)})`,
+    [status, ...ids]
+  );
+};
+
+router.patch("/:id/freeze", async (req, res) => {
+  await updateCodeStatus([req.params.id], "frozen");
+  return respond(res, {});
+});
+
+router.patch("/:id/unfreeze", async (req, res) => {
+  await execute(
+    `UPDATE ${table("register_codes")} SET status = 'unused' WHERE id = ? AND status = 'frozen'`,
+    [req.params.id]
+  );
+  return respond(res, {});
+});
+
+router.patch("/:id/unbind", async (req, res) => {
+  await execute(`UPDATE ${table("register_codes")} SET machine_code = NULL, is_bound = 0 WHERE id = ?`, [req.params.id]);
+  return respond(res, {});
+});
+
+router.patch("/:id/renew", async (req, res) => {
+  const quantity = Math.max(parseInt((req.body?.quantity ?? "1").toString(), 10) || 1, 1);
+  const cardType = typeof req.body?.cardType === "string" && req.body.cardType ? req.body.cardType : "";
+  const days = parseInt((req.body?.days ?? "30").toString(), 10);
+  const addMs = cardType ? cardTypeExpireMs(cardType) * quantity : (Number.isFinite(days) ? days : 30) * 86400000;
+  const row = await queryOne<{ expire_at: number | null }>(`SELECT expire_at FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+  const base = row?.expire_at && Number(row.expire_at) > Date.now() ? Number(row.expire_at) : Date.now();
+  await execute(`UPDATE ${table("register_codes")} SET expire_at = ? WHERE id = ?`, [base + addMs, req.params.id]);
+  return respond(res, {});
+});
+
+router.patch("/:id/offline", async (req, res) => {
+  await execute(`UPDATE ${table("register_codes")} SET is_online = 0 WHERE id = ?`, [req.params.id]);
+  return respond(res, {});
+});
+
+router.post("/batch/freeze", async (req, res) => {
+  await updateCodeStatus(Array.isArray(req.body?.ids) ? req.body.ids : [], "frozen");
+  return respond(res, {});
+});
+
+router.post("/batch/unfreeze", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (ids.length) {
+    await execute(
+      `UPDATE ${table("register_codes")}
+       SET status = 'unused'
+       WHERE status = 'frozen' AND id IN (${sqlPlaceholders(ids.length)})`,
+      ids
+    );
+  }
+  return respond(res, {});
+});
+
+router.post("/batch/unbind", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (ids.length) {
+    await execute(
+      `UPDATE ${table("register_codes")} SET machine_code = NULL, is_bound = 0 WHERE id IN (${sqlPlaceholders(ids.length)})`,
+      ids
+    );
+  }
+  return respond(res, {});
+});
+
+router.post("/batch/renew", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const days = parseInt((req.body?.days ?? "30").toString(), 10);
+  const addMs = (Number.isFinite(days) ? days : 30) * 86400000;
+  if (!ids.length) return respond(res, {});
+
+  await withTransaction(async (conn) => {
+    const rows = await conn.query(
+      `SELECT id, expire_at FROM ${table("register_codes")} WHERE id IN (${sqlPlaceholders(ids.length)})`,
+      ids
+    );
+    const list = (rows[0] as any[]) || [];
+    for (const r of list) {
+      const base = r.expire_at && Number(r.expire_at) > Date.now() ? Number(r.expire_at) : Date.now();
+      await conn.execute(`UPDATE ${table("register_codes")} SET expire_at = ? WHERE id = ?`, [base + addMs, r.id]);
+    }
+  });
+
+  return respond(res, {});
+});
+
+router.post("/batch/delete", async (req, res) => {
+  await updateCodeStatus(Array.isArray(req.body?.ids) ? req.body.ids : [], "deleted");
+  return respond(res, {});
+});
+
+router.post("/batch/recover", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (ids.length) {
+    await execute(
+      `UPDATE ${table("register_codes")}
+       SET status = 'unused'
+       WHERE status = 'deleted' AND id IN (${sqlPlaceholders(ids.length)})`,
+      ids
+    );
+  }
+  return respond(res, {});
+});
+
+router.post("/batch/project", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const projectId = req.body?.projectId;
+  if (!ids.length || !projectId) return respond(res, {});
+  const project = await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE id = ?`, [projectId]);
+  if (!project) return respondError(res, "椤圭洰涓嶅瓨鍦?, 400);
+  await execute(
+    `UPDATE ${table("register_codes")}
+     SET project_id = ?, project_name = ?
+     WHERE id IN (${sqlPlaceholders(ids.length)})`,
+    [project.id, project.name, ...ids]
+  );
+  return respond(res, {});
+});
+
+const batchUpdateRemark = async (ids: string[], remark: any) => {
+  if (!ids.length) return;
+  await execute(
+    `UPDATE ${table("register_codes")} SET remark = ? WHERE id IN (${sqlPlaceholders(ids.length)})`,
+    [remark ?? null, ...ids]
+  );
+};
+
+router.post("/batch/remark", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  await batchUpdateRemark(ids, req.body?.remark);
+  return respond(res, {});
+});
+
+// 鍏煎鏃?鏂囨。鎺ュ彛锛?api/codes/batch/update-remark
+router.post("/batch/update-remark", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  await batchUpdateRemark(ids, req.body?.remark);
+  return respond(res, {});
+});
+
+router.post("/batch/unbind-password", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const password = req.body?.password ?? "";
+  if (ids.length) {
+    await execute(
+      `UPDATE ${table("register_codes")} SET unbind_password = ? WHERE id IN (${sqlPlaceholders(ids.length)})`,
+      [password, ...ids]
+    );
+  }
+  return respond(res, {});
+});
+
+router.post("/batch/blacklist-ip", (_req, res) => {
+  return respond(res, {});
+});
+
+router.get("/:id", async (req, res) => {
+  const row = await queryOne(`SELECT * FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+  if (!row) return respondError(res, "鏈壘鍒版敞鍐岀爜", 404);
+  return respond(res, mapCodeRow(row));
+});
+
+router.put("/:id", async (req, res) => {
+  const existing = await queryOne<{ id: string }>(`SELECT id FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+  if (!existing) return respondError(res, "鏈壘鍒版敞鍐岀爜", 404);
+
+  const body = req.body || {};
+  let projectId: string | undefined;
+  let projectName: string | undefined;
+  if (body.projectId) {
+    const proj = await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE id = ?`, [body.projectId]);
+    if (!proj) return respondError(res, "椤圭洰涓嶅瓨鍦?, 400);
+    projectId = proj.id;
+    projectName = proj.name;
+  }
+
+  await execute(
+    `UPDATE ${table("register_codes")}
+     SET project_id = COALESCE(?, project_id),
+         project_name = COALESCE(?, project_name),
+         card_type = COALESCE(?, card_type),
+         status = COALESCE(?, status),
+         is_online = COALESCE(?, is_online),
+         is_bound = COALESCE(?, is_bound),
+         machine_code = COALESCE(?, machine_code),
+         unbind_password = COALESCE(?, unbind_password),
+         customer_info = COALESCE(?, customer_info),
+         remark = COALESCE(?, remark),
+         expire_at = COALESCE(?, expire_at)
+     WHERE id = ?`,
+    [
+      projectId ?? null,
+      projectName ?? null,
+      typeof body.cardType === "undefined" ? null : body.cardType,
+      typeof body.status === "undefined" ? null : body.status,
+      typeof body.isOnline === "undefined" ? null : body.isOnline ? 1 : 0,
+      typeof body.isBound === "undefined" ? null : body.isBound ? 1 : 0,
+      typeof body.machineCode === "undefined" ? null : body.machineCode,
+      typeof body.unbindPassword === "undefined" ? null : body.unbindPassword,
+      typeof body.customerInfo === "undefined" ? null : body.customerInfo,
+      typeof body.remark === "undefined" ? null : body.remark,
+      typeof body.expireAt === "undefined" ? null : body.expireAt,
+      req.params.id,
+    ]
+  );
+  return respond(res, {});
+});
+
+// 淇敼瀹㈡埛淇℃伅
+router.patch("/:id/customer-info", async (req, res) => {
+  const existing = await queryOne<{ id: string }>(`SELECT id FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+  if (!existing) return respondError(res, "鏈壘鍒版敞鍐岀爜", 404);
+
+  const customerInfo = typeof req.body?.customerInfo === "undefined" ? null : req.body.customerInfo;
+  if (customerInfo !== null && typeof customerInfo !== "string") return respondError(res, "customerInfo 蹇呴』鏄瓧绗︿覆", 400);
+
+  await execute(`UPDATE ${table("register_codes")} SET customer_info = ? WHERE id = ?`, [customerInfo, req.params.id]);
+  return respond(res, {});
+});
+
+router.delete("/:id", async (req, res) => {
+  await updateCodeStatus([req.params.id], "deleted");
+  return respond(res, {});
+});
+
+export default router;
