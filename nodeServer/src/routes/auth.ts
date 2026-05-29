@@ -186,7 +186,7 @@ router.post("/login", async (req, res) => {
     row.id,
   ]);
   const roleIds = roleRows.map((r) => r.role_id);
-  const token = jwt.sign({ userId: row.id, roles: roleIds }, SECRET, { expiresIn: remember ? "7d" : "2h" });
+  const token = jwt.sign({ userId: row.id, roles: roleIds }, SECRET, { expiresIn: remember ? "7d" : "12h" });
 
   await execute(
     `INSERT INTO ${table("logs")} (id, log_type, user, status, ip, created_at) VALUES (?, 'login', ?, 'success', ?, ?)`,

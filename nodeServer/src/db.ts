@@ -28,6 +28,7 @@ export interface Role {
 
 export interface Project {
   id: string;
+  projectNo?: number;
   name: string;
   description?: string;
   config: Record<string, unknown>;

@@ -39,6 +39,7 @@ router.get("/", async (req, res) => {
 
   const list: Project[] = rows.map((r: any) => ({
     id: r.id,
+    projectNo: Number(r.project_no || 0) || undefined,
     name: r.name,
     description: r.description || undefined,
     config: parseJsonObj(r.config),
@@ -57,6 +58,7 @@ router.get("/:id", async (req, res) => {
   if (!row) return respondError(res, "未找到项目", 404);
   const project: Project = {
     id: row.id,
+    projectNo: Number((row as any).project_no || 0) || undefined,
     name: row.name,
     description: row.description || undefined,
     config: parseJsonObj(row.config),
@@ -73,14 +75,16 @@ router.post("/", async (req, res) => {
 
   const id = uuid();
   const now = Date.now();
+  const projectNoRow = await queryOne<{ n: number }>(`SELECT COALESCE(MAX(project_no), 0) as n FROM ${table("projects")}`);
+  const projectNo = Number(projectNoRow?.n || 0) + 1;
   const description = req.body?.description || req.body?.notice || null;
   const config = req.body?.config && typeof req.body.config === "object" ? req.body.config : {};
 
   await execute(
-    `INSERT INTO ${table("projects")} (id, name, description, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, name, description, JSON.stringify(config), now, now]
+    `INSERT INTO ${table("projects")} (id, project_no, name, description, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, projectNo, name, description, JSON.stringify(config), now, now]
   );
-  return respond(res, { id });
+  return respond(res, { id, projectNo });
 });
 
 router.put("/:id", async (req, res) => {

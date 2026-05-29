@@ -1,0 +1,39 @@
+services:
+  frontend:
+    image: ${GHCR_IMAGE_PREFIX}/frontend:${IMAGE_TAG:-latest}
+    container_name: verifysys-frontend
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT}:80"
+    depends_on:
+      - api
+
+  api:
+    image: ${GHCR_IMAGE_PREFIX}/api:${IMAGE_TAG:-latest}
+    container_name: verifysys-api
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      VERIFYSYS_MYSQL_HOST: ${DB_HOST}
+      VERIFYSYS_MYSQL_PORT: ${DB_PORT}
+      VERIFYSYS_MYSQL_DB: ${DB_NAME}
+      VERIFYSYS_MYSQL_USER: ${DB_USER}
+      VERIFYSYS_MYSQL_PASSWORD: ${DB_PASSWORD}
+      VERIFYSYS_EMAIL_DEBUG: ${VERIFYSYS_EMAIL_DEBUG:-0}
+      VERIFYSYS_SMTP_HOST: ${VERIFYSYS_SMTP_HOST:-}
+      VERIFYSYS_SMTP_PORT: ${VERIFYSYS_SMTP_PORT:-465}
+      VERIFYSYS_SMTP_SECURE: ${VERIFYSYS_SMTP_SECURE:-true}
+      VERIFYSYS_SMTP_USER: ${VERIFYSYS_SMTP_USER:-}
+      VERIFYSYS_SMTP_PASS: ${VERIFYSYS_SMTP_PASS:-}
+      VERIFYSYS_SMTP_FROM: ${VERIFYSYS_SMTP_FROM:-}
+      VERIFYSYS_PRODUCT_NAME: ${VERIFYSYS_PRODUCT_NAME:-VerifySys}
+      CLIENT_DEV_SECRET: ${CLIENT_DEV_SECRET:-}
+    volumes:
+      - api-uploads:/app/uploads
+
+volumes:
+  api-uploads:

@@ -112,6 +112,64 @@ const cardTypeExpireMs = (cardType: string) => {
   }
 };
 
+const normalizeImportDelimiter = (delimiter: string) => {
+  if (delimiter === '\t' || delimiter === 'tab') return '\t';
+  if (delimiter === ';') return ';';
+  return ',';
+};
+
+const normalizeImportCardType = (value?: string | null) => {
+  const text = String(value || '').trim().toLowerCase();
+  const mapping: Record<string, string> = {
+    trial: 'trial',
+    '试用卡': 'trial',
+    hour: 'hour',
+    '小时卡': 'hour',
+    day: 'day',
+    '天卡': 'day',
+    week: 'week',
+    '周卡': 'week',
+    month: 'month',
+    '月卡': 'month',
+    quarter: 'quarter',
+    '季卡': 'quarter',
+    half_year: 'half_year',
+    '半年卡': 'half_year',
+    year: 'year',
+    '年卡': 'year',
+    permanent: 'permanent',
+    '永久卡': 'permanent',
+  };
+  return mapping[text] || '';
+};
+
+const parseImportTime = (value?: string | null) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const normalized = text.replace(/\//g, '-');
+  const timestamp = Date.parse(normalized.replace(' ', 'T'));
+  if (Number.isNaN(timestamp)) {
+    throw new Error(`无法解析时间：${text}`);
+  }
+  return timestamp;
+};
+
+const inferCardTypeFromExpire = (activatedAt: number | null, expireAt: number | null) => {
+  if (!activatedAt || !expireAt || expireAt <= activatedAt) return '';
+  const diff = expireAt - activatedAt;
+  const mapping: Array<[string, number]> = [
+    ['hour', 3600000],
+    ['day', 86400000],
+    ['week', 7 * 86400000],
+    ['month', 30 * 86400000],
+    ['quarter', 90 * 86400000],
+    ['half_year', 180 * 86400000],
+    ['year', 365 * 86400000],
+    ['permanent', 3650 * 86400000],
+  ];
+  const matched = mapping.find((item) => Math.abs(diff - item[1]) < 1000);
+  return matched ? matched[0] : '';
+};
 // 假设你用到的依赖和类型已经定义（uuid、queryOne、withTransaction、table、cardTypeExpireMs、respond、respondError、RegisterCode）
 router.post("/generate", async (req, res) => {
   const { count = 1, projectId, projectName, saletype, remark, cardType = "month" } = req.body || {};
@@ -210,6 +268,114 @@ router.post("/generate", async (req, res) => {
 });
 
 
+router.post("/import", async (req, res) => {
+  const projectId = String(req.body?.projectId || '').trim();
+  const delimiter = normalizeImportDelimiter(String(req.body?.delimiter || ','));
+  const content = String(req.body?.content || '');
+
+  if (!projectId) return respondError(res, '项目不能为空', 400);
+  if (!content.trim()) return respondError(res, '导入内容不能为空', 400);
+
+  const project = await queryOne<{ id: string; name: string }>(
+    `SELECT id, name FROM ${table("projects")} WHERE id = ?`,
+    [projectId]
+  );
+  if (!project) return respondError(res, '项目不存在', 400);
+
+  const lines = content
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((line: string) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) return respondError(res, '没有可导入的数据', 400);
+
+  const now = Date.now();
+  const items: RegisterCode[] = [];
+
+  try {
+    await withTransaction(async (conn) => {
+      for (let index = 0; index < lines.length; index += 1) {
+        const lineNo = index + 1;
+        const columns = lines[index].split(delimiter).map((item) => item.trim());
+        const [code, activatedText = '', expireText = '', cardTypeText = ''] = columns;
+
+        if (!code) {
+          throw new Error(`第${lineNo}行注册码不能为空`);
+        }
+
+        const activatedAt = parseImportTime(activatedText);
+        const expireAt = parseImportTime(expireText);
+        let cardType: string = normalizeImportCardType(cardTypeText);
+
+        if (!cardType) {
+          cardType = String(inferCardTypeFromExpire(activatedAt, expireAt) || (!activatedAt ? 'hour' : ''));
+        }
+
+        if (!cardType) {
+          throw new Error(`第${lineNo}行缺少有效卡类型`);
+        }
+
+        if (activatedAt && expireAt && expireAt <= activatedAt) {
+          throw new Error(`第${lineNo}行到期时间必须晚于激活时间`);
+        }
+
+        const finalExpireAt = expireAt ?? (activatedAt ? activatedAt + cardTypeExpireMs(cardType) : null);
+        const status: CodeStatus = !activatedAt ? 'unused' : finalExpireAt && finalExpireAt < now ? 'expired' : 'in_use';
+        const id = uuid();
+        const createdAt = activatedAt || now;
+
+        try {
+          await conn.execute(
+            `INSERT INTO ${table("register_codes")}
+              (
+                id, code, project_id, project_name, card_type,
+                status, is_online, is_bound, machine_code, last_login_ip,
+                last_login_at, activated_at, unbind_password, customer_info,
+                remark, sale_type, expire_at, created_at
+              )
+              VALUES (?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?, NULL, NULL, NULL, 'author_generated', ?, ?)`,
+            [
+              id,
+              code,
+              project.id,
+              project.name,
+              cardType,
+              status,
+              activatedAt,
+              finalExpireAt,
+              createdAt,
+            ]
+          );
+        } catch (err: any) {
+          if (String(err?.code || '').includes('ER_DUP_ENTRY')) {
+            throw new Error(`第${lineNo}行注册码已存在：${code}`);
+          }
+          throw err;
+        }
+
+        items.push({
+          id,
+          code,
+          projectId: project.id,
+          projectName: project.name,
+          cardType,
+          status,
+          isOnline: false,
+          isBound: false,
+          activatedAt: activatedAt || undefined,
+          expireAt: finalExpireAt || undefined,
+          saleType: 'author_generated',
+          createdAt,
+        });
+      }
+    });
+  } catch (err: any) {
+    return respondError(res, err?.message || '导入失败', 400);
+  }
+
+  return respond(res, { imported: items.length, items });
+});
 router.get("/export", async (_req, res) => {
   await syncCodeExpireAndStatus(Date.now());
   const rows = await query(`SELECT * FROM ${table("register_codes")} ORDER BY created_at DESC`);

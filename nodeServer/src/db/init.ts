@@ -1,11 +1,12 @@
 import { hashPassword } from "../utils";
-import { execute, queryOne } from "./mysql";
+import { execute, query, queryOne } from "./mysql";
 import { TABLE_PREFIX, table } from "./tables";
 
 export const initDb = async () => {
   await migratePrefixIfNeeded();
   await createTables();
   await ensureColumns();
+  await ensureProjectNumbers();
   await ensureIndexes();
   await seedIfEmpty();
 };
@@ -121,6 +122,7 @@ const createTables = async () => {
   await execute(
     `CREATE TABLE IF NOT EXISTS ${table("projects")} (
       id VARCHAR(64) PRIMARY KEY,
+      project_no BIGINT NULL,
       name VARCHAR(64) NOT NULL UNIQUE,
       description VARCHAR(255) NULL,
       config JSON NOT NULL,
@@ -244,6 +246,7 @@ const ensureColumns = async () => {
   await ensureColumn("custom_data", "remark", "VARCHAR(255) NULL");
   await ensureColumn("security_policies", "config", "JSON NULL");
   await ensureColumn("security_policies", "updated_at", "BIGINT NULL");
+  await ensureColumn("projects", "project_no", "BIGINT NULL");
 };
 
 const ensureColumn = async (tableName: string, column: string, ddl: string) => {
@@ -258,9 +261,24 @@ const ensureColumn = async (tableName: string, column: string, ddl: string) => {
   await execute(`ALTER TABLE ${table(tableName)} ADD COLUMN ${column} ${ddl}`);
 };
 
+const ensureProjectNumbers = async () => {
+  const maxRow = await queryOne<{ n: number }>(`SELECT COALESCE(MAX(project_no), 0) as n FROM ${table("projects")}`);
+  let nextNo = Number(maxRow?.n || 0) + 1;
+
+  const rows = await query<{ id: string }>(
+    `SELECT id FROM ${table("projects")} WHERE project_no IS NULL OR project_no = 0 ORDER BY created_at ASC, id ASC`
+  );
+
+  for (const row of rows) {
+    await execute(`UPDATE ${table("projects")} SET project_no = ? WHERE id = ?`, [nextNo, row.id]);
+    nextNo += 1;
+  }
+};
+
 const ensureIndexes = async () => {
   // 一个项目只能有一条安全策略
   await ensureUniqueIndexIfNoDuplicates("security_policies", "uniq_project_id", ["project_id"]);
+  await ensureUniqueIndexIfNoDuplicates("projects", "uniq_project_no", ["project_no"]);
 };
 
 const ensureUniqueIndexIfNoDuplicates = async (tableName: string, indexName: string, columns: string[]) => {
@@ -274,20 +292,20 @@ const ensureUniqueIndexIfNoDuplicates = async (tableName: string, indexName: str
   );
   if ((indexRow?.c || 0) > 0) return;
 
-  // 若存在重复 project_id，跳过创建（避免启动时报错）；接口层仍会阻止新增/改到重复项目
-  if (tableName === "security_policies") {
-    const dupRow = await queryOne<{ c: number }>(
-      `SELECT COUNT(*) as c FROM (
-        SELECT project_id
-        FROM ${table("security_policies")}
-        GROUP BY project_id
-        HAVING COUNT(*) > 1
-      ) t`
-    );
-    if ((dupRow?.c || 0) > 0) return;
-  }
+  const notNullWhere = columns.map((column) => `${column} IS NOT NULL`).join(', ').replace(/, /g, ' AND ');
+  const groupBy = columns.join(', ');
+  const dupRow = await queryOne<{ c: number }>(
+    `SELECT COUNT(*) as c FROM (
+      SELECT ${groupBy}
+      FROM ${table(tableName)}
+      ${notNullWhere ? `WHERE ${notNullWhere}` : ""}
+      GROUP BY ${groupBy}
+      HAVING COUNT(*) > 1
+    ) t`
+  );
+  if ((dupRow?.c || 0) > 0) return;
 
-  const cols = columns.map((c) => `\`${c}\``).join(", ");
+  const cols = columns.map((c) => `\`${c}\``).join(', ');
   await execute(`ALTER TABLE ${table(tableName)} ADD UNIQUE INDEX ${indexName} (${cols})`);
 };
 
@@ -314,8 +332,8 @@ const seedIfEmpty = async () => {
   await execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES ('u-admin','role-admin')`);
 
   await execute(
-    `INSERT INTO ${table("projects")} (id, name, description, config, created_at, updated_at)
-     VALUES ('p-1','默认项目','演示用例',?, ?, ?)`,
+    `INSERT INTO ${table("projects")} (id, project_no, name, description, config, created_at, updated_at)
+     VALUES ('p-1', 1, '默认项目','演示用例',?, ?, ?)`,
     [JSON.stringify({ theme: "light" }), now, now]
   );
 

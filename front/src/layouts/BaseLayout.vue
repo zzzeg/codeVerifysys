@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   User as AvatarIcon,
@@ -56,10 +56,6 @@ const handleLogout = () => {
   mobileMenuOpen.value = false
   router.push('/login')
 }
-
-onMounted(() => {
-  auth.fetchProfile().catch(() => undefined)
-})
 </script>
 
 <template>

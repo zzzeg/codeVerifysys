@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Download, Upload, Delete } from '@element-plus/icons-vue'
+import { useRoute } from 'vue-router'
 import request from '../../utils/request'
 import { formatDateTime } from '../../utils/datetime'
 
@@ -56,19 +57,30 @@ const currentRow = ref<CodeItem | null>(null)
 const showDetail = ref(false)
 const projects = ref<any[]>([])
 const tableRef = ref<any>()
+const route = useRoute()
 const batchProjectDialogVisible = ref(false)
-const renewDialogVisible = ref(false)
-const renewing = ref(false)
-const renewTarget = ref<CodeItem | null>(null)
+const exportDialogVisible = ref(false)
+const importDialogVisible = ref(false)
+const importSubmitting = ref(false)
+const importFileInputRef = ref<HTMLInputElement | null>(null)
 const batchProjectForm = reactive({
   projectId: '',
 })
-const renewForm = reactive({
-  cardType: 'hour',
-  quantity: 1,
+const exportForm = reactive({
+  scope: 'selected',
+  linesPerGroup: 1,
+  onlyCode: true,
+  saveAsExcel: false,
+})
+const importForm = reactive({
+  projectId: '',
+  delimiter: ',',
+  fileName: '',
+  fileContent: '',
 })
 
 const tableheight = 'calc(100vh - 480px)'
+const hasSelection = computed(() => selectedRows.value.length > 0)
 const selectedProjectIds = computed(() =>
   Array.from(new Set(selectedRows.value.map((row) => row.projectId).filter(Boolean)))
 )
@@ -77,6 +89,44 @@ const relayoutTable = () => {
   nextTick(() => {
     tableRef.value?.doLayout?.()
   })
+}
+
+const getDelimiterLabel = (delimiter: string) => {
+  if (delimiter === '\t') return 'Tab'
+  if (delimiter === ';') return '分号(;)'
+  return '逗号(,)'
+}
+
+const getExportTimestamp = () => {
+  const now = new Date()
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+
+const buildQueryParams = (page = filters.currentPage, pageSize = filters.pageSize) => {
+  const params: any = {
+    page,
+    pageSize,
+  }
+
+  if (filters.startTime) params.startTime = filters.startTime
+  if (filters.endTime) params.endTime = filters.endTime
+  if (filters.timeType) params.timeType = filters.timeType
+  if (filters.code) params.keyword = filters.code
+  if (filters.machineCode) params.machineCode = filters.machineCode
+
+  const statuses = new Set<string>()
+  filters.usageStatuses.forEach((s) => statuses.add(s))
+  if (filters.operationFlags.includes('frozen')) statuses.add('frozen')
+  if (statuses.size) params.status = Array.from(statuses).join(',')
+
+  if (filters.operationFlags.includes('bound')) params.isBound = true
+  if (filters.cardTypes.length) params.cardType = filters.cardTypes.join(',')
+  if (filters.projectId) params.projectId = filters.projectId
+  if (filters.onlineStatus && filters.onlineStatus !== 'all') params.isOnline = filters.onlineStatus === 'online'
+  if (filters.saleType && filters.saleType !== 'all') params.saleType = filters.saleType
+
+  return params
 }
 
 // 获取项目列表
@@ -93,10 +143,7 @@ const fetchProjects = async () => {
 const fetchList = async () => {
   loading.value = true
   try {
-    const params: any = {
-      page: filters.currentPage,
-      pageSize: filters.pageSize,
-    }
+    const params = buildQueryParams()
 
     // 时间筛选
     if (filters.startTime) params.startTime = filters.startTime
@@ -374,27 +421,154 @@ const handleBatchDelete = async () => {
   }
 }
 
-// 导出
-const handleExport = async () => {
-  const rows = selectedRows.value.length ? selectedRows.value : list.value
-  if (!rows.length) {
-    ElMessage.warning('没有可导出的数据')
-    return
-  }
-  const content = rows.map((r) => r.code).join('\n')
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `注册码导出_${new Date().toISOString().slice(0, 10)}.txt`
-  a.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('导出成功')
+const openExportDialog = () => {
+  exportForm.scope = hasSelection.value ? 'selected' : 'page'
+  exportForm.linesPerGroup = 1
+  exportForm.onlyCode = true
+  exportForm.saveAsExcel = false
+  exportDialogVisible.value = true
 }
 
-// 导入
-const handleImport = () => {
-  ElMessage.info('导入功能开发中...')
+const openImportDialog = () => {
+  importForm.projectId = filters.projectId || ''
+  importForm.delimiter = ','
+  importForm.fileName = ''
+  importForm.fileContent = ''
+  importDialogVisible.value = true
+}
+
+const loadAllCodesForExport = async () => {
+  const pageSize = 200
+  let page = 1
+  let allRows: CodeItem[] = []
+  let totalCount = 0
+
+  do {
+    const resp = await request.get('/api/codes', {
+      params: buildQueryParams(page, pageSize),
+    })
+    const data = resp.data.data || {}
+    const rows = (data.list || data || []) as any[]
+    const normalized = rows.map((r) => ({
+      ...r,
+      expireAt: typeof r.expireAt === 'undefined' ? r.expiredAt : r.expireAt,
+      userMsg: typeof r.userMsg === 'undefined' ? r.customerInfo : r.userMsg,
+    }))
+    allRows = allRows.concat(normalized)
+    totalCount = Number(data.total || normalized.length || 0)
+    page += 1
+    if (!rows.length) break
+  } while (allRows.length < totalCount)
+
+  return allRows
+}
+
+const getExportRows = async () => {
+  if (exportForm.scope === 'selected') return selectedRows.value
+  if (exportForm.scope === 'page') return list.value
+  return await loadAllCodesForExport()
+}
+
+const buildExportLine = (row: CodeItem) => {
+  if (exportForm.onlyCode) return row.code
+
+  const fields = [
+    row.code,
+    cardTypeMap[row.cardType] || row.cardType || '',
+    row.projectName || row.projectId || '',
+    formatDateTime(row.createdAt) || '',
+    formatDateTime(row.activatedAt) || '',
+    row.remark || '',
+    row.unbindPassword || '',
+  ]
+
+  return exportForm.saveAsExcel
+    ? fields.map((item) => `${item ?? ''}`.replace(/\t/g, ' ')).join('\t')
+    : fields.map((item) => `${item ?? ''}`).join(',')
+}
+
+const submitExport = async () => {
+  try {
+    const rows = await getExportRows()
+    if (!rows.length) {
+      ElMessage.warning('没有可导出的数据')
+      return
+    }
+
+    const chunkSize = Math.max(Number(exportForm.linesPerGroup) || 1, 1)
+    const lines = rows.map(buildExportLine)
+    const contentLines: string[] = []
+    lines.forEach((line, index) => {
+      contentLines.push(line)
+      if ((index + 1) % chunkSize === 0 && index !== lines.length - 1) {
+        contentLines.push('')
+      }
+    })
+
+    const content = contentLines.join('\r\n')
+    const blob = new Blob([content], {
+      type: exportForm.saveAsExcel
+        ? 'application/vnd.ms-excel;charset=utf-8'
+        : 'text/plain;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `注册码导出_${getExportTimestamp()}.${exportForm.saveAsExcel ? 'xls' : 'txt'}`
+    a.click()
+    URL.revokeObjectURL(url)
+    exportDialogVisible.value = false
+    ElMessage.success('导出成功')
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.message || err?.message || '导出失败')
+  }
+}
+
+const triggerImportFile = () => {
+  importFileInputRef.value?.click()
+}
+
+const handleImportFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  if (!/\.txt$/i.test(file.name)) {
+    ElMessage.warning('仅支持导入 .txt 文件')
+    input.value = ''
+    return
+  }
+
+  importForm.fileName = file.name
+  importForm.fileContent = await file.text()
+  input.value = ''
+}
+
+const submitImport = async () => {
+  if (!importForm.projectId) {
+    ElMessage.warning('请选择项目名称')
+    return
+  }
+  if (!importForm.fileContent.trim()) {
+    ElMessage.warning('请先选择要导入的 .txt 文件')
+    return
+  }
+
+  importSubmitting.value = true
+  try {
+    await request.post('/api/codes/import', {
+      projectId: importForm.projectId,
+      delimiter: importForm.delimiter,
+      content: importForm.fileContent,
+    })
+    importDialogVisible.value = false
+    ElMessage.success('导入成功')
+    fetchList()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.message || err?.message || '导入失败')
+  } finally {
+    importSubmitting.value = false
+  }
 }
 
 // 清理已过期
@@ -448,6 +622,30 @@ const handleSizeChange = (size: number) => {
   filters.currentPage = 1
   fetchList()
   relayoutTable()
+}
+
+const readProjectContext = () => {
+  const raw = sessionStorage.getItem('codesListProjectContext')
+  if (!raw) return ''
+
+  sessionStorage.removeItem('codesListProjectContext')
+
+  try {
+    const parsed = JSON.parse(raw) as { projectId?: string; from?: string; at?: number }
+    if (parsed?.from !== 'projects-list') return ''
+    if (!parsed?.projectId) return ''
+    if (parsed?.at && Date.now() - parsed.at > 5 * 60 * 1000) return ''
+    return parsed.projectId
+  } catch {
+    return ''
+  }
+}
+
+const applyRouteProjectFilter = () => {
+  const projectId = readProjectContext()
+  if (!projectId) return
+  filters.projectId = projectId
+  filters.currentPage = 1
 }
 
 // 批量解绑
@@ -579,9 +777,21 @@ const saveUserMsg = async () => {
 
 onMounted(() => {
   fetchProjects()
+  applyRouteProjectFilter()
   fetchList()
   relayoutTable()
 })
+
+watch(
+  () => route.query.projectId,
+  (projectId) => {
+    const nextProjectId = typeof projectId === 'string' ? projectId : ''
+    if (!nextProjectId || nextProjectId === filters.projectId) return
+    filters.projectId = nextProjectId
+    filters.currentPage = 1
+    fetchList()
+  },
+)
 </script>
 
 <template>
@@ -693,8 +903,8 @@ onMounted(() => {
         <el-button link type="primary" size="small" @click="handleBatchRecharge">续费</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangePassword">重置解绑密码</el-button>
         <el-button link type="primary" size="small" @click="handleBatchAddIP">添加IP到黑名单</el-button>
-        <el-button link type="primary" size="small" :icon="Download" @click="handleExport">导出注册码</el-button>
-        <el-button link type="primary" size="small" :icon="Upload" @click="handleImport">导入注册码</el-button>
+        <el-button link type="primary" size="small" :icon="Download" @click="openExportDialog">导出注册码</el-button>
+        <el-button link type="primary" size="small" :icon="Upload" @click="openImportDialog">导入注册码</el-button>
         <el-button link type="primary" :icon="Delete" @click="handleCleanupExpired">清理已过期</el-button>
       </div>
       <!-- 表格 -->
@@ -840,6 +1050,100 @@ onMounted(() => {
         </tbody>
       </table>
     </div>
+
+    <el-dialog
+      v-model="exportDialogVisible"
+      title="导出注册码"
+      width="520px"
+      transition="none"
+      :lock-scroll="false"
+      destroy-on-close
+      append-to-body
+    >
+      <el-form label-width="122px" class="dialog-form">
+        <el-form-item label="导出内容：">
+          <div class="dialog-static-text">注册码、卡类型、项目类型、生成时间、激活时间、备注信息、解绑密码</div>
+        </el-form-item>
+        <el-form-item label="每多少条分行符：">
+          <el-input-number v-model="exportForm.linesPerGroup" :min="1" :step="1" controls-position="right" style="width: 180px" />
+        </el-form-item>
+        <el-form-item label="导出范围：">
+          <el-radio-group v-model="exportForm.scope" class="export-radio-group">
+            <el-radio label="selected" :disabled="!hasSelection">选中的注册码</el-radio>
+            <el-radio label="page">本页注册码</el-radio>
+            <el-radio label="all">全部注册码</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="只导出注册码：">
+          <el-checkbox v-model="exportForm.onlyCode" />
+        </el-form-item>
+        <el-form-item label="保存为 excel：">
+          <el-checkbox v-model="exportForm.saveAsExcel" />
+          <span class="dialog-hint">默认保存为 txt 文件</span>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="exportDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitExport">确认</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="importDialogVisible"
+      title="导入注册码"
+      width="720px"
+      transition="none"
+      :lock-scroll="false"
+      destroy-on-close
+      append-to-body
+    >
+      <el-form label-width="108px" class="dialog-form">
+        <el-form-item label="项目名称：">
+          <el-select v-model="importForm.projectId" placeholder="请选择项目名称" style="width: 240px">
+            <el-option
+              v-for="item in projects"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="上传文件：">
+          <div class="export-file-row">
+            <el-input :model-value="importForm.fileName" readonly placeholder="请选择 .txt 文件" style="width: 260px" />
+            <el-button @click="triggerImportFile">选择文件</el-button>
+            <input
+              ref="importFileInputRef"
+              type="file"
+              accept=".txt,text/plain"
+              class="hidden-file-input"
+              @change="handleImportFileChange"
+            />
+          </div>
+        </el-form-item>
+        <el-form-item label="分割符：">
+          <el-select v-model="importForm.delimiter" style="width: 180px">
+            <el-option label="逗号(,)" value="," />
+            <el-option label="分号(;)" value=";" />
+            <el-option label="Tab" value="\t" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="导入说明：">
+          <div class="import-guide">
+            <p>从其它系统导出的注册码数据，可直接按当前选择的分割符导入。</p>
+            <p>导入格式支持：注册码{{ getDelimiterLabel(importForm.delimiter) }}激活时间{{ getDelimiterLabel(importForm.delimiter) }}到期时间{{ getDelimiterLabel(importForm.delimiter) }}卡类型。</p>
+            <p>示例：AAAAAAA{{ importForm.delimiter === '\t' ? '    ' : importForm.delimiter }}2016-01-01 00:00:00{{ importForm.delimiter === '\t' ? '    ' : importForm.delimiter }}2016-02-01 00:00:00{{ importForm.delimiter === '\t' ? '    ' : importForm.delimiter }}月卡</p>
+            <p class="import-warning">注意：文件编码必须为 UTF-8，当前只支持导入 .txt 文件。</p>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importSubmitting" @click="submitImport">确认</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="batchProjectDialogVisible"
@@ -1065,6 +1369,47 @@ v-deep .el-checkbox {
     color: #606266;
     line-height: 1.6;
     word-break: break-all;
+  }
+
+  .dialog-static-text {
+    color: #334155;
+    line-height: 1.7;
+  }
+
+  .dialog-hint {
+    margin-left: 10px;
+    color: #ef4444;
+    font-size: 12px;
+  }
+
+  .export-radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .export-file-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .hidden-file-input {
+    display: none;
+  }
+
+  .import-guide {
+    color: #ef4444;
+    line-height: 1.9;
+    word-break: break-all;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  .import-warning {
+    font-weight: 700;
   }
 }
 

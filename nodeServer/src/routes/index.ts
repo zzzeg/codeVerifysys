@@ -13,6 +13,7 @@ import profileRoutes from "./profile";
 import systemRoutes from "./system";
 import dashboardRoutes from "./dashboard";
 import notificationRoutes from "./notifications";
+import clientRoutes from "./client";
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use("/profile", profileRoutes);
 router.use("/system", systemRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/notifications", notificationRoutes);
+router.use("/client", clientRoutes);
 
 export default router;

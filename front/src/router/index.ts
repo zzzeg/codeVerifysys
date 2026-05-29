@@ -142,8 +142,48 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
+  // If we have a token but haven't validated it yet (e.g. after F5 refresh),
+  // validate once before allowing navigation.
+  const ensureSession = async () => {
+    if (!auth.token) return false
+    if (auth.currentUser) return true
+
+    try {
+      await auth.fetchProfile()
+    } catch {
+      // ignore and fall through to check currentUser
+    }
+
+    // If token is invalid, request interceptor likely logged out already.
+    return Boolean(auth.token && auth.currentUser)
+  }
+
+  // Visiting login with a token: only skip login if the session is valid.
   if (to.path === '/login' && auth.token) {
-    next('/codes/list')
+    document.title = (to.meta.title as string) || 'VerifySys'
+    ensureSession()
+      .then((ok) => {
+        if (ok) next('/codes/list')
+        else next()
+      })
+      .catch(() => next())
+    return
+  }
+
+  // Visiting protected pages with a token: validate first, otherwise go to login.
+  if (to.path !== '/login' && auth.token) {
+    ensureSession()
+      .then((ok) => {
+        if (!ok) {
+          next({ path: '/login', query: { redirect: to.fullPath } })
+          return
+        }
+        document.title = (to.meta.title as string) || 'VerifySys'
+        next()
+      })
+      .catch(() => {
+        next({ path: '/login', query: { redirect: to.fullPath } })
+      })
     return
   }
 

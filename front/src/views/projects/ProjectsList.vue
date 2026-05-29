@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import request from '../../utils/request'
 
 interface ProjectItem {
@@ -15,6 +16,7 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 const tableHeight = 'calc(100vh - 360px)'
+const router = useRouter()
 
 const normalizeList = (payload: unknown): ProjectItem[] => {
   if (Array.isArray(payload)) return payload as ProjectItem[]
@@ -51,6 +53,20 @@ const handleSizeChange = (nextSize: number) => {
   page.value = 1
 }
 
+const goToProjectCodes = (row: ProjectItem) => {
+  sessionStorage.setItem(
+    'codesListProjectContext',
+    JSON.stringify({
+      projectId: row.id,
+      from: 'projects-list',
+      at: Date.now(),
+    }),
+  )
+  router.push({
+    path: '/codes/list',
+  })
+}
+
 onMounted(fetchList)
 </script>
 
@@ -77,8 +93,8 @@ onMounted(fetchList)
         </template>
       </el-table-column>
       <el-table-column label="管理" width="200">
-        <template #default>
-          <el-link type="primary">注册码</el-link>
+        <template #default="{ row }">
+          <el-link type="primary" @click="goToProjectCodes(row)">注册码</el-link>
           <el-link type="primary" style="margin-left: 8px">文件</el-link>
           <el-link type="primary" style="margin-left: 8px">数据</el-link>
         </template>

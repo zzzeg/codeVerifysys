@@ -1,1 +1,1 @@
-export const SECRET = "verifysys-dev-secret";
+export const SECRET = process.env.JWT_SECRET || "verifysys-dev-secret";

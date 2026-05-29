@@ -1,0 +1,25 @@
+// 注册表脚本 — COM 注册用
+HKCR
+{
+    VerifySys.VerifyClient.1 = s 'VerifySys VerifyClient Component'
+    {
+        CLSID = s '{C3B1A7F0-9E2D-4A58-8B6C-7D3F1E5A4C82}'
+    }
+    VerifySys.VerifyClient = s 'VerifySys VerifyClient Component'
+    {
+        CurVer = s 'VerifySys.VerifyClient.1'
+    }
+    NoRemove CLSID
+    {
+        ForceRemove {C3B1A7F0-9E2D-4A58-8B6C-7D3F1E5A4C82} = s 'VerifySys VerifyClient Component'
+        {
+            ProgID = s 'VerifySys.VerifyClient.1'
+            VersionIndependentProgID = s 'VerifySys.VerifyClient'
+            InprocServer32 = s '%MODULE%'
+            {
+                val ThreadingModel = s 'Apartment'
+            }
+            TypeLib = s '{D7C9E3A0-5F12-4B86-A1D4-8E2B7F3C6D95}'
+        }
+    }
+}
