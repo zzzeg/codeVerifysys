@@ -1,24 +1,18 @@
-.ignore
-.env.example
-docs/
-front/
-nodeServer/
-client-com-dll/
-*.md
+# Local environment files
+.env
+.env.*
+!.env.example
 
-.git/
-.github/
-.claude/
-.vscode/
+# Upload-tool ignore file, not needed in repository
+.ignore
+
+# Dependencies and build output
 node_modules/
 dist/
 build/
 coverage/
 .cache/
 .vite/
-
-.env
-.env.*
 
 front/node_modules/
 front/dist/
@@ -27,12 +21,20 @@ nodeServer/node_modules/
 nodeServer/dist/
 nodeServer/uploads/
 
+# Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Native build artifacts
 *.obj
 *.lib
 *.exp
@@ -40,6 +42,7 @@ pnpm-debug.log*
 *.pdb
 *.ilk
 
+# Archives
 *.zip
 *.tar
 *.tar.gz
