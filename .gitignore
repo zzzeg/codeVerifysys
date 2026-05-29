@@ -6,6 +6,15 @@
 # Upload-tool ignore file, not needed in repository
 .ignore
 
+# Local notes, docs, backups, and non-build artifacts
+/*.md
+docs/
+client-com-dll/
+database/
+front/backup/
+*.bak
+*.corrupt.bak
+
 # Dependencies and build output
 node_modules/
 dist/
@@ -16,7 +25,6 @@ coverage/
 
 front/node_modules/
 front/dist/
-front/backup/
 nodeServer/node_modules/
 nodeServer/dist/
 nodeServer/uploads/

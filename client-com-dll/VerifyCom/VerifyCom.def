@@ -1,8 +1,0 @@
-; VerifyCom.def — 导出 DLL 注册函数
-LIBRARY "Auth"
-
-EXPORTS
-    DllCanUnloadNow     PRIVATE
-    DllGetClassObject   PRIVATE
-    DllRegisterServer   PRIVATE
-    DllUnregisterServer PRIVATE
