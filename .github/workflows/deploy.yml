@@ -12,6 +12,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+  IMAGE_PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   build:
@@ -36,10 +37,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
           context: ./front
+          platforms: ${{ env.IMAGE_PLATFORMS }}
           push: true
           tags: |
             ${{ steps.image.outputs.prefix }}/frontend:latest
@@ -49,6 +54,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./nodeServer
+          platforms: ${{ env.IMAGE_PLATFORMS }}
           push: true
           tags: |
             ${{ steps.image.outputs.prefix }}/api:latest
