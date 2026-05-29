@@ -83,7 +83,26 @@ jobs:
             exit 1
           fi
 
-          curl --fail --show-error --silent \
+          JENKINS_BASE_URL="$(echo "$JENKINS_WEBHOOK_URL" | sed -E 's#(/job/.*)$##')"
+          CRUMB_API_URL="$JENKINS_BASE_URL/crumbIssuer/api/json"
+          BUILD_URL="$JENKINS_WEBHOOK_URL?token=$JENKINS_WEBHOOK_TOKEN"
+
+          CRUMB_JSON="$(curl --silent --show-error \
             --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
-            -X POST \
-            "$JENKINS_WEBHOOK_URL?token=$JENKINS_WEBHOOK_TOKEN"
+            "$CRUMB_API_URL" || true)"
+
+          if [ -n "$CRUMB_JSON" ] && echo "$CRUMB_JSON" | grep -q '"crumb"'; then
+            CRUMB_FIELD="$(echo "$CRUMB_JSON" | sed -n 's/.*"crumbRequestField":"\([^"]*\)".*/\1/p')"
+            CRUMB_VALUE="$(echo "$CRUMB_JSON" | sed -n 's/.*"crumb":"\([^"]*\)".*/\1/p')"
+
+            curl --fail --show-error --silent \
+              --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              -H "$CRUMB_FIELD: $CRUMB_VALUE" \
+              -X POST \
+              "$BUILD_URL"
+          else
+            curl --fail --show-error --silent \
+              --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
+              -X POST \
+              "$BUILD_URL"
+          fi
