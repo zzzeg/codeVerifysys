@@ -4,6 +4,7 @@ import { SECRET } from "../config";
 import type { User } from "../db";
 import { query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
+import { ROLE_ADMIN } from "../constants/roles";
 
 export interface JwtPayloadShape {
   userId: string;
@@ -38,12 +39,37 @@ const loadUserById = async (userId: string): Promise<User | undefined> => {
   const roles = await query<{ role_id: string }>(`SELECT role_id FROM ${table("user_roles")} WHERE user_id = ?`, [
     userId,
   ]);
+  const permissions = await query<{ permissions: any }>(
+    `SELECT r.permissions
+     FROM ${table("roles")} r
+     INNER JOIN ${table("user_roles")} ur ON ur.role_id = r.id
+     WHERE ur.user_id = ?`,
+    [userId]
+  );
+
+  const resolvedPermissions = Array.from(
+    new Set(
+      permissions.flatMap((row) => {
+        if (Array.isArray(row.permissions)) return row.permissions.map(String);
+        if (typeof row.permissions === "string") {
+          try {
+            const parsed = JSON.parse(row.permissions);
+            return Array.isArray(parsed) ? parsed.map(String) : [];
+          } catch {
+            return [];
+          }
+        }
+        return [];
+      })
+    )
+  );
 
   return {
     id: row.id,
     username: row.username,
     passwordHash: row.password_hash,
     roleIds: roles.map((r) => r.role_id),
+    permissions: resolvedPermissions,
     status: row.status === "disabled" ? "disabled" : "active",
     email: row.email || undefined,
     phone: row.phone || undefined,
@@ -70,3 +96,26 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
   }
 };
 
+const hasAdminAccess = (user?: User) =>
+  Boolean(user && (user.roleIds.includes(ROLE_ADMIN) || user.permissions.includes("*") || user.username === "admin"));
+
+const hasPermissionAccess = (user: User | undefined, requiredPermissions: string[]) => {
+  if (!user) return false;
+  if (hasAdminAccess(user)) return true;
+  return requiredPermissions.some((permission) => user.permissions.includes(permission));
+};
+
+export const requireAdmin =
+  () =>
+  (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!hasAdminAccess(req.user)) return respondError(res, "无权访问", 403);
+    next();
+  };
+
+export const requirePermission =
+  (...requiredPermissions: string[]) =>
+  (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!requiredPermissions.length) return next();
+    if (!hasPermissionAccess(req.user, requiredPermissions)) return respondError(res, "无权访问", 403);
+    next();
+  };

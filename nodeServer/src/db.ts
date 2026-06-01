@@ -11,6 +11,7 @@ export interface User {
   username: string;
   passwordHash: string;
   roleIds: string[];
+  permissions: string[];
   email?: string;
   phone?: string;
   status: UserStatus;
@@ -24,6 +25,9 @@ export interface Role {
   name: string;
   description?: string;
   permissions: string[];
+  isSystem?: boolean;
+  isDefault?: boolean;
+  roleType?: "system" | "extension";
 }
 
 export interface Project {

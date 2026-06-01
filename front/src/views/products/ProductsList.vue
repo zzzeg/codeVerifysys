@@ -34,7 +34,7 @@ const projects = ref<ProjectItem[]>([])
 const projectNameMap = ref<Record<string, string>>({})
 const page = ref(1)
 const pageSize = ref(10)
-const tableMaxHeight = 'calc(100vh - 320px)'
+const tableMaxHeight = 'var(--vs-table-max-height)'
 
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
@@ -58,7 +58,8 @@ const fetchProducts = async () => {
 const copyLink = async (row: ProductItem) => {
   const resp = await request.get(`/api/products/${row.id}/link`)
   const link = resp.data.data.link
-  await navigator.clipboard.writeText(window.location.origin + link)
+  const code = String(link).split('/').pop()
+  await navigator.clipboard.writeText(`${window.location.origin}/buy/${code}`)
   ElMessage.success('商品链接已复制')
 }
 
@@ -85,7 +86,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="pure-table-page">
     <el-table :data="pagedList" :max-height="tableMaxHeight" style="width: 100%">
       <el-table-column label="项目名称">
         <template #default="{ row }">

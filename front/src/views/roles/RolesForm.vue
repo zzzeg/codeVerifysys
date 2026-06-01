@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
+import { permissionOptions } from '../../utils/permissions'
 
 interface RoleItem {
   id: string
@@ -17,6 +18,9 @@ const editingId = computed(() => String(route.params.id || ''))
 const isEdit = computed(() => !!editingId.value)
 const loading = ref(false)
 const form = reactive<Partial<RoleItem>>({ name: '', description: '', permissions: [] })
+const assignablePermissionOptions = permissionOptions.filter(
+  (item) => !['*', 'dashboard', 'users', 'roles', 'logs'].includes(item.value),
+)
 
 const fetchDetail = async () => {
   if (!isEdit.value) return
@@ -60,15 +64,26 @@ onMounted(fetchDetail)
   <div class="form-shell" v-loading="loading">
     <el-form :model="form" label-width="90px">
       <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
-      <el-form-item label="描述"><el-input v-model="form.description" /></el-form-item>
-      <el-form-item label="权限标识">
-        <el-select v-model="form.permissions" multiple filterable allow-create default-first-option style="width: 100%">
-          <el-option label="users" value="users" />
-          <el-option label="roles" value="roles" />
-          <el-option label="codes" value="codes" />
-          <el-option label="projects" value="projects" />
-          <el-option label="products" value="products" />
-          <el-option label="custom-data" value="custom-data" />
+      <el-form-item label="角色"><el-input v-model="form.description" /></el-form-item>
+      <el-form-item label="权限范围">
+        <el-select
+          v-model="form.permissions"
+          multiple
+          filterable
+          placeholder="请选择权限范围"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="item in assignablePermissionOptions"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          >
+            <div class="permission-option">
+              <span>{{ item.label }}</span>
+              <small>{{ item.value }}</small>
+            </div>
+          </el-option>
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -82,5 +97,17 @@ onMounted(fetchDetail)
 <style scoped>
 .form-shell {
   max-width: 520px;
+}
+
+.permission-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.permission-option small {
+  color: #9ca3af;
+  font-size: 12px;
 }
 </style>

@@ -5,12 +5,13 @@ import {
   type RegisterCode,
   type CodeStatus,
 } from "../db";
-import { respond, respondError, authMiddleware } from "../middlewares/auth";
+import { respond, respondError, authMiddleware, requirePermission } from "../middlewares/auth";
 import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(requirePermission("codes"));
 
 const cardTypeExpireMsSqlCase = (cardTypeCol: string) => {
   const day = 86400000;
@@ -110,6 +111,48 @@ const cardTypeExpireMs = (cardType: string) => {
     default:
       return 30 * day;
   }
+};
+
+const renewUnitMs = (unit: string) => {
+  const day = 86400000;
+  switch (unit) {
+    case "hour":
+      return 3600000;
+    case "day":
+      return day;
+    case "week":
+      return 7 * day;
+    case "month":
+      return 30 * day;
+    case "quarter":
+      return 90 * day;
+    case "half_year":
+      return 180 * day;
+    case "year":
+      return 365 * day;
+    default:
+      return 0;
+  }
+};
+
+const getRenewDurationMs = (body: any) => {
+  const explicitDurationMs = Number(body?.durationMs);
+  if (Number.isFinite(explicitDurationMs) && explicitDurationMs !== 0) return Math.trunc(explicitDurationMs);
+
+  const quantity = Number(body?.quantity);
+  const unitMs = renewUnitMs(String(body?.unit || ""));
+  if (Number.isFinite(quantity) && quantity !== 0 && unitMs > 0) return Math.trunc(quantity * unitMs);
+
+  const days = Number(body?.days);
+  if (Number.isFinite(days) && days !== 0) return Math.trunc(days * 86400000);
+
+  return 30 * 86400000;
+};
+
+const getRenewBaseTime = (expireAt: number | null | undefined, addMs: number, now: number) => {
+  const currentExpireAt = expireAt ? Number(expireAt) : 0;
+  if (addMs > 0) return currentExpireAt > now ? currentExpireAt : now;
+  return currentExpireAt || now;
 };
 
 const normalizeImportDelimiter = (delimiter: string) => {
@@ -519,6 +562,21 @@ router.get("/", async (req, res) => {
 
 const sqlPlaceholders = (count: number) => Array.from({ length: count }, () => "?").join(",");
 
+const restoreCodeStatuses = async (ids: string[]) => {
+  if (!ids.length) return;
+  const now = Date.now();
+  await execute(
+    `UPDATE ${table("register_codes")}
+     SET status = CASE
+       WHEN activated_at IS NULL THEN 'unused'
+       WHEN expire_at IS NOT NULL AND expire_at < ? THEN 'expired'
+       ELSE 'in_use'
+     END
+     WHERE id IN (${sqlPlaceholders(ids.length)})`,
+    [now, ...ids]
+  );
+};
+
 const updateCodeStatus = async (ids: string[], status: CodeStatus) => {
   if (!ids.length) return;
   await execute(
@@ -533,10 +591,7 @@ router.patch("/:id/freeze", async (req, res) => {
 });
 
 router.patch("/:id/unfreeze", async (req, res) => {
-  await execute(
-    `UPDATE ${table("register_codes")} SET status = 'unused' WHERE id = ? AND status = 'frozen'`,
-    [req.params.id]
-  );
+  await restoreCodeStatuses([req.params.id]);
   return respond(res, {});
 });
 
@@ -546,12 +601,14 @@ router.patch("/:id/unbind", async (req, res) => {
 });
 
 router.patch("/:id/renew", async (req, res) => {
-  const days = parseInt((req.body?.days ?? "30").toString(), 10);
-  const addMs = (Number.isFinite(days) ? days : 30) * 86400000;
+  const addMs = getRenewDurationMs(req.body);
+  if (addMs === 0) return respondError(res, "续费数量不能为 0", 400);
   const row = await queryOne<{ expire_at: number | null }>(`SELECT expire_at FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
-  const base = row?.expire_at && Number(row.expire_at) > Date.now() ? Number(row.expire_at) : Date.now();
-  await execute(`UPDATE ${table("register_codes")} SET expire_at = ? WHERE id = ?`, [base + addMs, req.params.id]);
-  return respond(res, {});
+  const now = Date.now();
+  const base = getRenewBaseTime(row?.expire_at, addMs, now);
+  const expireAt = base + addMs;
+  await execute(`UPDATE ${table("register_codes")} SET expire_at = ? WHERE id = ?`, [expireAt, req.params.id]);
+  return respond(res, { expireAt });
 });
 
 router.patch("/:id/offline", async (req, res) => {
@@ -566,14 +623,7 @@ router.post("/batch/freeze", async (req, res) => {
 
 router.post("/batch/unfreeze", async (req, res) => {
   const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
-  if (ids.length) {
-    await execute(
-      `UPDATE ${table("register_codes")}
-       SET status = 'unused'
-       WHERE status = 'frozen' AND id IN (${sqlPlaceholders(ids.length)})`,
-      ids
-    );
-  }
+  await restoreCodeStatuses(ids);
   return respond(res, {});
 });
 
@@ -590,23 +640,24 @@ router.post("/batch/unbind", async (req, res) => {
 
 router.post("/batch/renew", async (req, res) => {
   const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
-  const days = parseInt((req.body?.days ?? "30").toString(), 10);
-  const addMs = (Number.isFinite(days) ? days : 30) * 86400000;
+  const addMs = getRenewDurationMs(req.body);
+  if (addMs === 0) return respondError(res, "续费数量不能为 0", 400);
   if (!ids.length) return respond(res, {});
 
   await withTransaction(async (conn) => {
+    const now = Date.now();
     const rows = await conn.query(
       `SELECT id, expire_at FROM ${table("register_codes")} WHERE id IN (${sqlPlaceholders(ids.length)})`,
       ids
     );
     const list = (rows[0] as any[]) || [];
     for (const r of list) {
-      const base = r.expire_at && Number(r.expire_at) > Date.now() ? Number(r.expire_at) : Date.now();
+      const base = getRenewBaseTime(r.expire_at, addMs, now);
       await conn.execute(`UPDATE ${table("register_codes")} SET expire_at = ? WHERE id = ?`, [base + addMs, r.id]);
     }
   });
 
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
 router.post("/batch/delete", async (req, res) => {
@@ -616,14 +667,7 @@ router.post("/batch/delete", async (req, res) => {
 
 router.post("/batch/recover", async (req, res) => {
   const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
-  if (ids.length) {
-    await execute(
-      `UPDATE ${table("register_codes")}
-       SET status = 'unused'
-       WHERE status = 'deleted' AND id IN (${sqlPlaceholders(ids.length)})`,
-      ids
-    );
-  }
+  await restoreCodeStatuses(ids);
   return respond(res, {});
 });
 

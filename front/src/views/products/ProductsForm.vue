@@ -48,6 +48,8 @@ const editingId = computed(() => String(route.params.id || ''))
 const isEdit = computed(() => !!editingId.value)
 const loading = ref(false)
 const projects = ref<ProjectItem[]>([])
+const projectsRequestId = ref(0)
+const detailRequestId = ref(0)
 
 const form = reactive({
   name: '',
@@ -60,7 +62,9 @@ const form = reactive({
 })
 
 const fetchProjects = async () => {
+  const requestId = ++projectsRequestId.value
   const resp = await request.get('/api/projects')
+  if (requestId !== projectsRequestId.value) return
   const rows = (resp.data.data || []) as any[]
   projects.value = rows.map((row) => ({ id: row.id, name: row.name }))
   if (!form.projectId) form.projectId = projects.value[0]?.id || ''
@@ -81,14 +85,16 @@ const fillForm = (row: ProductItem) => {
 
 const fetchProductDetail = async () => {
   if (!isEdit.value) return
+  const requestId = ++detailRequestId.value
   loading.value = true
   try {
-    const resp = await request.get('/api/products')
-    const rows = (resp.data.data || []) as ProductItem[]
-    const target = rows.find((row) => row.id === editingId.value)
-    if (target) fillForm(target)
+    const resp = await request.get(`/api/products/${editingId.value}`)
+    if (requestId !== detailRequestId.value) return
+    if (resp.data.data) fillForm(resp.data.data as ProductItem)
   } finally {
-    loading.value = false
+    if (requestId === detailRequestId.value) {
+      loading.value = false
+    }
   }
 }
 
@@ -100,17 +106,21 @@ const saveProduct = async () => {
   if (!form.projectId) return ElMessage.warning('请选择项目')
   if (!form.name.trim()) return ElMessage.warning('请输入商品名称')
   if (!form.variants.length) return ElMessage.warning('请至少添加一种商品类型')
+  if (form.summary.length > 200) return ElMessage.warning('商品简介不能超过 200 个字符')
+  if (form.minBuy > form.maxBuy) return ElMessage.warning('最少购买数量不能大于最大购买数量')
+  if (form.variants.some((variant) => !variant.label.trim() || !variant.cardType)) return ElMessage.warning('请完善商品类型与卡类型')
+  if (form.variants.some((variant) => Number(variant.price) < 0 || Number.isNaN(Number(variant.price)))) return ElMessage.warning('商品价格必须为非负数')
 
   const payload = {
     name: form.name.trim(),
     projectId: form.projectId,
-    summary: form.summary,
+    summary: form.summary.trim(),
     allowAnonymous: form.allowAnonymous,
     minBuy: form.minBuy,
     maxBuy: form.maxBuy,
     variants: form.variants.map((variant) => ({
       id: variant.id,
-      label: variant.label,
+      label: variant.label.trim(),
       price: Number(variant.price || 0),
       cardType: variant.cardType,
     })),
@@ -148,6 +158,7 @@ onMounted(async () => {
 
       <el-form-item label="匿名购买">
         <el-switch v-model="form.allowAnonymous" />
+        <span class="switch-status-text">{{ form.allowAnonymous ? '启用' : '禁用' }}</span>
       </el-form-item>
 
       <el-form-item label="商品简介">
@@ -187,7 +198,7 @@ onMounted(async () => {
               </template>
             </el-table-column>
           </el-table>
-          <el-button type="warning" class="append-btn" @click="addVariant">增加</el-button>
+          <el-button type="primary" class="append-btn" @click="addVariant">增加</el-button>
         </div>
       </el-form-item>
 

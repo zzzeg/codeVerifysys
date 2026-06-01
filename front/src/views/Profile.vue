@@ -310,31 +310,36 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="profile-page">
-    <div class="profile-wrap">
-      <div class="profile-frame">
-        <aside class="profile-side">
-          <div class="profile-side-head">个人中心</div>
-          <div class="profile-side-body">
-            <button type="button" class="profile-side-link" :class="{ active: activeTab === 'info' }" @click="activeTab = 'info'">
+  <div class="vs-ref-shell">
+    <div class="vs-ref-frame">
+      <div class="vs-ref-split">
+        <aside class="vs-ref-side">
+          <div class="vs-ref-side-head">个人中心</div>
+          <div class="vs-ref-side-body">
+            <div class="mobile-ref-crumb">
+              <span>个人中心</span>
+              <i>/</i>
+              <strong>{{ activeTab === 'info' ? '个人信息' : '财务管理' }}</strong>
+            </div>
+            <button type="button" class="vs-ref-side-link" :class="{ active: activeTab === 'info' }" @click="activeTab = 'info'">
               &gt; 个人信息
             </button>
-            <button type="button" class="profile-side-link" :class="{ active: activeTab === 'finance' }" @click="activeTab = 'finance'">
+            <button type="button" class="vs-ref-side-link" :class="{ active: activeTab === 'finance' }" @click="activeTab = 'finance'">
               &gt; 财务管理
             </button>
           </div>
         </aside>
 
-        <section class="profile-main">
-          <div class="profile-main-head">
-            <h2 class="profile-main-title">{{ activeTab === 'info' ? '个人信息' : '财务管理' }}</h2>
+        <section class="vs-ref-main">
+          <div class="vs-ref-main-head profile-main-head">
+            <h2 class="vs-ref-main-title">{{ activeTab === 'info' ? '个人信息' : '财务管理' }}</h2>
             <div class="profile-head-actions" v-if="activeTab === 'info'">
               <el-button @click="openPasswordDialog">修改密码</el-button>
               <el-button type="primary" @click="saveProfile">保存资料</el-button>
             </div>
           </div>
 
-          <div class="profile-main-body">
+          <div class="vs-ref-main-body profile-main-body">
             <template v-if="activeTab === 'info'">
               <div class="hero-card">
                 <div class="hero-avatar">
@@ -611,94 +616,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.profile-page {
-  width: 100%;
-  height: 100%;
-}
-
-.profile-wrap {
-  height: 100%;
-  border-radius:12px; overflow: hidden;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-  background: #fff;
-}
-
-.profile-frame {
-  height: 100%;
-}
-
-.profile-side {
-  width: 224px;
-  border-right: 1px solid rgba(229, 231, 235, 0.7);
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.profile-frame {
-  display: flex;
-  min-height: 0;
-}
-
-.profile-side {
-  width: 224px;
-  border-right: 1px solid rgba(229, 231, 235, 0.7);
-  background: rgba(255, 255, 255, 0.78);
-}
-
-.profile-side-head {
-  padding: 14px 16px;
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(90deg, var(--vs-primary) 0%, var(--vs-primary-strong) 100%);
-}
-
-.profile-side-body {
-  padding: 8px;
-}
-
-.profile-side-link {
-  width: 100%;
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 11px 14px;
-  border-radius: 10px;
-  font-size: 14px;
-  color: #4b5563;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.profile-side-link:hover {
-  background: rgba(249, 250, 251, 0.9);
-}
-
-.profile-side-link.active {
-  background: rgba(243, 244, 246, 0.96);
-  color: #111827;
-}
-
-.profile-main {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 .profile-main-head {
-  padding: 16px 24px;
-  border-bottom: 1px solid rgba(229, 231, 235, 0.7);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.profile-main-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: #111827;
 }
 
 .profile-head-actions {
@@ -709,23 +631,22 @@ onBeforeUnmount(() => {
 }
 
 .profile-main-body {
-  padding: 24px;
   overflow: auto;
 }
 
 .hero-card {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding-bottom: 24px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid rgba(229, 231, 235, 0.7);
+  gap: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #ebeef5;
 }
 
 .hero-avatar {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 72px;
+  height: 72px;
 }
 
 .avatar-image,
@@ -737,18 +658,18 @@ onBeforeUnmount(() => {
 
 .avatar-image {
   object-fit: cover;
-  border: 4px solid #fff;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  border: 1px solid #e4e7ed;
+  box-shadow: none;
 }
 
 .avatar-icon {
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
-  color: #3d97f9;
-  font-size: 40px;
-  border: 4px solid #fff;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 32px;
+  border: 1px solid #dbeafe;
+  box-shadow: none;
 }
 
 .avatar-trigger {
@@ -757,37 +678,37 @@ onBeforeUnmount(() => {
   bottom: 0;
   width: 32px;
   height: 32px;
-  border: none;
+  border: 1px solid #fff;
   border-radius: 999px;
   display: grid;
   place-items: center;
   color: #fff;
-  background:linear-gradient(90deg, var(--vs-primary) 0%, var(--vs-primary-strong) 100%);;
-  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.28);
+  background: var(--vs-primary);
+  box-shadow: none;
 }
 
 .hero-name {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 600;
   color: #111827;
 }
 
 .hero-subtitle {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 14px;
   color: #6b7280;
 }
 
 .profile-block + .profile-block {
-  margin-top: 24px;
+  margin-top: 18px;
 }
 
 .block-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
-  font-size: 16px;
+  margin-bottom: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: #111827;
 }
@@ -799,13 +720,14 @@ onBeforeUnmount(() => {
 .info-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .info-item {
-  padding: 16px;
-  border-radius: 14px;
-  background: rgba(249, 250, 251, 0.72);
+  padding: 14px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  background: #f8fafc;
 }
 
 .info-item label {
@@ -842,24 +764,25 @@ onBeforeUnmount(() => {
 .finance-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .finance-card {
-  min-height: 168px;
-  padding: 24px;
-  border-radius: 16px;
-  color: #fff;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
+  padding: 18px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  color: #303133;
+  background: #fff;
+  box-shadow: none;
 }
 
 .finance-card.balance {
-  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  border-left: 3px solid #2563eb;
 }
 
 .finance-card.income {
-  background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+  border-left: 3px solid #16a34a;
 }
 
 .finance-card-icon {
@@ -867,9 +790,10 @@ onBeforeUnmount(() => {
   height: 48px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.2);
-  margin-bottom: 16px;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #2563eb;
+  margin-bottom: 12px;
 }
 
 .finance-card-icon .el-icon {
@@ -878,28 +802,29 @@ onBeforeUnmount(() => {
 
 .finance-label {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.86);
+  color: #606266;
 }
 
 .finance-value {
   margin-top: 6px;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 700;
+  color: #2563eb;
 }
 
 .finance-note {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #ebeef5;
   font-size: 12px;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.82);
+  color: #909399;
 }
 
 .finance-toolbar {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .finance-pagination {
@@ -932,7 +857,7 @@ onBeforeUnmount(() => {
 .withdraw-account {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: #f5f7fa;
   color: #606266;
 }
@@ -951,16 +876,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 980px) {
-  .profile-frame {
-    flex-direction: column;
-  }
-
-  .profile-side {
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid rgba(229, 231, 235, 0.7);
-  }
-
   .finance-cards,
   .info-grid {
     grid-template-columns: 1fr;
@@ -978,14 +893,40 @@ onBeforeUnmount(() => {
   }
 
   .profile-main-head {
-    padding-left: 16px;
-    padding-right: 16px;
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .profile-main-body {
-    padding: 16px;
+  .finance-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .finance-card-icon {
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    margin-bottom: 0;
+  }
+
+  .finance-card-icon .el-icon {
+    font-size: 20px;
+  }
+
+  .finance-card-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .finance-value {
+    font-size: 22px;
+  }
+
+  .finance-note {
+    margin-top: 8px;
+    padding-top: 8px;
   }
 
   .finance-pagination {

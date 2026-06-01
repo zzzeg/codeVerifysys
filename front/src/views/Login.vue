@@ -13,6 +13,7 @@ interface LoginResult {
     id: string
     username: string
     roles: string[]
+    permissions: string[]
   }
 }
 
@@ -208,9 +209,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="login-page">
-    <div class="ambient ambient-left" />
-    <div class="ambient ambient-right" />
-
     <div class="wrap">
       <section class="login-shell">
         <div class="showcase">
@@ -386,32 +384,7 @@ onBeforeUnmount(() => {
   position: relative;
   min-height: 100vh;
   overflow: hidden;
-  background:
-    radial-gradient(circle at top left, rgba(47, 107, 255, 0.2), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(45, 212, 191, 0.18), transparent 28%),
-    linear-gradient(135deg, #edf4ff 0%, #f7fbff 44%, #eef4fb 100%);
-}
-
-.ambient {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(12px);
-}
-
-.ambient-left {
-  width: 520px;
-  height: 520px;
-  left: -180px;
-  top: 80px;
-  background: rgba(47, 107, 255, 0.14);
-}
-
-.ambient-right {
-  width: 420px;
-  height: 420px;
-  right: -120px;
-  bottom: -100px;
-  background: rgba(56, 189, 248, 0.12);
+  background: #f0f2f5;
 }
 
 .wrap {
@@ -420,7 +393,7 @@ onBeforeUnmount(() => {
   width: min(1280px, calc(100% - 40px));
   min-height: 100vh;
   margin: 0 auto;
-  padding: 32px 0;
+  padding: 28px 0;
   display: flex;
   align-items: center;
 }
@@ -431,11 +404,10 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1.15fr) 440px;
   gap: 24px;
   padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.64);
-  border-radius: 32px;
-  background: rgba(255, 255, 255, 0.68);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
 }
 
 .showcase {
@@ -444,13 +416,13 @@ onBeforeUnmount(() => {
 
 .showcase-badge {
   display: inline-flex;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(47, 107, 255, 0.1);
-  color: #1748cf;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #2563eb;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -463,9 +435,9 @@ onBeforeUnmount(() => {
 }
 
 .title-line {
-  font-size: clamp(42px, 6vw, 68px);
-  line-height: 0.96;
-  letter-spacing: -0.05em;
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 1;
+  letter-spacing: 0;
   font-weight: 800;
 }
 
@@ -493,9 +465,9 @@ onBeforeUnmount(() => {
 
 .metric-card {
   padding: 14px;
-  border-radius: 18px;
-  background: rgba(247, 250, 255, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid #ebeef5;
 }
 
 .metric-card strong {
@@ -516,11 +488,9 @@ onBeforeUnmount(() => {
 .illustration-panel {
   margin-top: 18px;
   padding: 12px;
-  border-radius: 22px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(239, 246, 255, 0.88)),
-    radial-gradient(circle at top right, rgba(47, 107, 255, 0.12), transparent 34%);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #ebeef5;
 }
 
 .illustration {
@@ -535,7 +505,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-height: 100%;
-  padding: 12px;
+  padding: 8px;
   justify-content: center;
 }
 
@@ -554,25 +524,26 @@ onBeforeUnmount(() => {
 }
 
 .logo {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, rgba(47, 107, 255, 0.12), rgba(125, 211, 252, 0.18));
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
 }
 
 .drop {
   width: 22px;
   height: 22px;
   display: inline-block;
-  border-radius: 0 50% 50% 50%;
-  transform: rotate(45deg);
-  background: linear-gradient(180deg, #2aa7ff, #2f6bff);
+  border-radius: 4px;
+  transform: none;
+  background: #2563eb;
 }
 
 .brand-title {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 800;
   color: #172033;
 }
@@ -585,20 +556,20 @@ onBeforeUnmount(() => {
 }
 
 .panel-tip {
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(247, 250, 255, 0.94);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #f8fafc;
+  border: 1px solid #ebeef5;
   color: #607089;
   font-size: 12px;
   font-weight: 700;
 }
 
 .card {
-  padding: 24px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 22px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #ebeef5;
 }
 
 .card-heading h2 {
@@ -619,10 +590,10 @@ onBeforeUnmount(() => {
 
 .primary {
   width: 100%;
-  height: 46px;
+  height: 40px;
   border: 0;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #2f6bff, #5b8cff);
+  border-radius: 4px;
+  background: #2563eb;
   color:#fff;
 }
 
@@ -659,8 +630,8 @@ onBeforeUnmount(() => {
 
 .sub {
   width: 140px;
-  height: 42px;
-  border-radius: 14px;
+  height: 38px;
+  border-radius: 4px;
 }
 
 .divider {
@@ -702,8 +673,8 @@ onBeforeUnmount(() => {
 }
 
 .code-btn {
-  height: 46px;
-  border-radius: 14px;
+  height: 40px;
+  border-radius: 4px;
 }
 
 :deep(.el-form-item) {
@@ -711,10 +682,10 @@ onBeforeUnmount(() => {
 }
 
 :deep(.el-input__wrapper) {
-  min-height: 46px;
-  border-radius: 16px;
+  min-height: 40px;
+  border-radius: 4px;
   background: #fff;
-  padding: 0 20px;
+  padding: 0 12px;
 }
 
 /* :deep(.el-input__inner) {
@@ -764,7 +735,7 @@ onBeforeUnmount(() => {
 @media (max-width: 720px) {
   .login-shell {
     padding: 20px;
-    border-radius: 24px;
+    border-radius: 6px;
   }
 
   .showcase,
@@ -789,6 +760,187 @@ onBeforeUnmount(() => {
 
   .code-row {
     grid-template-columns: 1fr;
+  }
+}
+
+/* pure-admin-max style overrides */
+.login-page {
+  background: #f0f2f5;
+}
+
+.ambient {
+  display: none;
+}
+
+.wrap {
+  width: min(1080px, calc(100% - 40px));
+  padding: 28px 0;
+}
+
+.login-shell {
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 0;
+  padding: 0;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+}
+
+.showcase {
+  min-height: 520px;
+  padding: 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background:
+    linear-gradient(180deg, rgba(236, 245, 255, 0.84), rgba(255, 255, 255, 0.96)),
+    #f8fafc;
+}
+
+.showcase-badge {
+  width: fit-content;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: #ecf5ff;
+  color: #2563eb;
+  letter-spacing: 0;
+}
+
+.title-line {
+  font-size: 42px;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.showcase-copy {
+  color: #606266;
+}
+
+.illustration-panel {
+  max-width: 520px;
+  margin-top: 28px;
+  padding: 18px;
+  border-radius: 8px;
+  background: #fff;
+  border-color: #ebeef5;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.illustration {
+  max-height: 240px;
+  filter: none;
+}
+
+.panel {
+  padding: 32px;
+  border-left: 1px solid #ebeef5;
+  background: #fff;
+}
+
+.panel-header {
+  margin-bottom: 18px;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #ecf5ff;
+}
+
+.drop {
+  width: 18px;
+  height: 18px;
+  background: #2563eb;
+}
+
+.brand-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.brand-subtitle {
+  color: #909399;
+}
+
+.panel-tip {
+  display: none;
+}
+
+.card {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.card-heading h2 {
+  font-size: 22px;
+}
+
+.card-heading p {
+  color: #909399;
+}
+
+.primary {
+  height: 38px;
+  border-radius: 4px;
+  background: #2563eb;
+}
+
+.sub {
+  height: 34px;
+  border-radius: 4px;
+}
+
+.code-btn {
+  height: 36px;
+  border-radius: 4px;
+}
+
+:deep(.el-input__wrapper) {
+  min-height: 36px;
+  border-radius: 4px;
+  padding: 0 12px;
+}
+
+@media (max-width: 1120px) {
+  .login-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    border-left: none;
+    border-top: 1px solid #ebeef5;
+  }
+
+  .showcase {
+    min-height: auto;
+    padding: 32px;
+  }
+}
+
+@media (max-width: 720px) {
+  .wrap {
+    width: min(100% - 24px, 460px);
+  }
+
+  .login-shell {
+    border-radius: 6px;
+  }
+
+  .showcase {
+    padding: 24px;
+  }
+
+  .panel {
+    padding: 24px;
+  }
+
+  .title-line {
+    font-size: 30px;
   }
 }
 </style>

@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { uuid, type CustomData } from "../db";
-import { respond, respondError, authMiddleware } from "../middlewares/auth";
+import { respond, respondError, authMiddleware, requirePermission } from "../middlewares/auth";
 import { execute, query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(requirePermission("custom-data"));
 
 router.get("/", async (req, res) => {
   const { projectId = "", key = "", remark = "", page = "1", pageSize = "10" } = req.query as Record<string, string>;

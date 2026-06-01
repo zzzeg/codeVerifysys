@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="110" y1="0" x2="110" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1220"/>
+      <stop offset="1" stop-color="#182644"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(160 54) rotate(90) scale(92)">
+      <stop stop-color="#45DEFF" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#45DEFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cardTop" x1="106" y1="40" x2="106" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#243B67" stop-opacity=".95"/>
+      <stop offset="1" stop-color="#243B67" stop-opacity=".55"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="46" y1="115.5" x2="78" y2="115.5" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD36A"/>
+      <stop offset="1" stop-color="#E7A93D"/>
+    </linearGradient>
+    <filter id="shadow" x="18" y="30" width="184" height="152" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feOffset dx="4" dy="6"/>
+      <feGaussianBlur stdDeviation="8"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0"/>
+      <feBlend in2="SourceGraphic" result="shape"/>
+    </filter>
+  </defs>
+
+  <rect width="220" height="220" fill="url(#bg)"/>
+  <circle cx="160" cy="54" r="92" fill="url(#glow)"/>
+
+  <g opacity=".12" stroke="#FFF">
+    <path d="M22 0V220"/>
+    <path d="M44 0V220"/>
+    <path d="M66 0V220"/>
+    <path d="M88 0V220"/>
+    <path d="M110 0V220"/>
+    <path d="M132 0V220"/>
+    <path d="M154 0V220"/>
+    <path d="M176 0V220"/>
+    <path d="M198 0V220"/>
+    <path d="M0 22H220"/>
+    <path d="M0 44H220"/>
+    <path d="M0 66H220"/>
+    <path d="M0 88H220"/>
+    <path d="M0 110H220"/>
+    <path d="M0 132H220"/>
+    <path d="M0 154H220"/>
+    <path d="M0 176H220"/>
+    <path d="M0 198H220"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="30" y="40" width="152" height="128" rx="22" fill="#10182A" fill-opacity=".96" stroke="#62DAFF" stroke-opacity=".7" stroke-width="2"/>
+    <path d="M52 40H160C172.15 40 182 49.85 182 62V92H30V62C30 49.85 39.85 40 52 40Z" fill="url(#cardTop)"/>
+  </g>
+
+  <rect x="46" y="103" width="32" height="25" rx="6" fill="url(#chip)"/>
+  <path d="M53 106V125M59 106V125M65 106V125M71 106V125" stroke="#A06A1D" stroke-opacity=".75"/>
+
+  <text x="106" y="83" fill="#F2F8FF" font-size="21" font-family="Arial, Helvetica, sans-serif" font-weight="700" text-anchor="middle" letter-spacing="1">CDK</text>
+  <text x="90" y="119" fill="#92DDFF" font-size="12" font-family="Arial, Helvetica, sans-serif">DIGITAL KEY</text>
+  <text x="90" y="141" fill="#FFFFFF" font-size="14" font-family="Arial, Helvetica, sans-serif" font-weight="700">XXXX-XXXX-XXXX</text>
+
+  <g fill="#48C6FF">
+    <rect x="20" y="182" width="18" height="4" rx="2"/>
+    <rect x="46" y="186" width="18" height="4" rx="2"/>
+    <rect x="72" y="182" width="18" height="4" rx="2"/>
+    <rect x="98" y="186" width="18" height="4" rx="2"/>
+    <rect x="124" y="182" width="18" height="4" rx="2"/>
+  </g>
+
+  <g stroke="#FFF" stroke-width="1.2" stroke-linecap="round" opacity=".95">
+    <path d="M32 37H40"/>
+    <path d="M36 33V41"/>
+    <path d="M188 29H196"/>
+    <path d="M192 25V33"/>
+    <path d="M193 183H201"/>
+    <path d="M197 179V187"/>
+  </g>
+</svg>

@@ -9,6 +9,7 @@ interface LoginResp {
     id: string
     username: string
     roles: string[]
+    permissions: string[]
   }
 }
 
@@ -36,6 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
         id: resp.data.data.id,
         username: resp.data.data.username,
         roles: resp.data.data.roleIds || [],
+        permissions: resp.data.data.permissions || [],
       }
     }
   }

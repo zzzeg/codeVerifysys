@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { respond, authMiddleware } from "../middlewares/auth";
+import { respond, authMiddleware, requireAdmin } from "../middlewares/auth";
 import { query } from "../db/mysql";
 import { table } from "../db/tables";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(requireAdmin());
 
 const fetchLogs = async (type: "operation" | "login" | "error") => {
   return query(`SELECT * FROM ${table("logs")} WHERE log_type = ? ORDER BY created_at DESC LIMIT 500`, [type]);
@@ -31,4 +32,3 @@ router.get("/export", async (_req, res) => {
 });
 
 export default router;
-

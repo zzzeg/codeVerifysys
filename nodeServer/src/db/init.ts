@@ -1,4 +1,5 @@
 import { hashPassword } from "../utils";
+import { LEGACY_ROLE_OPS, ROLE_ADMIN, ROLE_DEVELOPER, SYSTEM_ROLE_DEFINITIONS } from "../constants/roles";
 import { execute, query, queryOne } from "./mysql";
 import { TABLE_PREFIX, table } from "./tables";
 
@@ -8,6 +9,7 @@ export const initDb = async () => {
   await ensureColumns();
   await ensureProjectNumbers();
   await ensureIndexes();
+  await ensureSystemRoles();
   await seedIfEmpty();
 };
 
@@ -199,8 +201,13 @@ const createTables = async () => {
       id VARCHAR(64) PRIMARY KEY,
       product_id VARCHAR(64) NOT NULL,
       buyer VARCHAR(128) NOT NULL,
+      buyer_email VARCHAR(128) NULL,
+      variant_id VARCHAR(64) NULL,
+      variant_label VARCHAR(128) NULL,
       quantity INT NOT NULL,
       amount DECIMAL(10,2) NOT NULL,
+      verify_code VARCHAR(16) NULL,
+      delivery_payload JSON NULL,
       status VARCHAR(16) NOT NULL,
       created_at BIGINT NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
@@ -247,6 +254,11 @@ const ensureColumns = async () => {
   await ensureColumn("security_policies", "config", "JSON NULL");
   await ensureColumn("security_policies", "updated_at", "BIGINT NULL");
   await ensureColumn("projects", "project_no", "BIGINT NULL");
+  await ensureColumn("orders", "buyer_email", "VARCHAR(128) NULL");
+  await ensureColumn("orders", "variant_id", "VARCHAR(64) NULL");
+  await ensureColumn("orders", "variant_label", "VARCHAR(128) NULL");
+  await ensureColumn("orders", "verify_code", "VARCHAR(16) NULL");
+  await ensureColumn("orders", "delivery_payload", "JSON NULL");
 };
 
 const ensureColumn = async (tableName: string, column: string, ddl: string) => {
@@ -309,6 +321,28 @@ const ensureUniqueIndexIfNoDuplicates = async (tableName: string, indexName: str
   await execute(`ALTER TABLE ${table(tableName)} ADD UNIQUE INDEX ${indexName} (${cols})`);
 };
 
+const ensureSystemRoles = async () => {
+  const now = Date.now();
+  for (const role of SYSTEM_ROLE_DEFINITIONS) {
+    await execute(
+      `INSERT INTO ${table("roles")} (id, name, description, permissions, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         permissions = VALUES(permissions)`,
+      [role.id, role.name, role.description, JSON.stringify(role.permissions), now]
+    );
+  }
+
+  await execute(
+    `INSERT IGNORE INTO ${table("user_roles")} (user_id, role_id)
+     SELECT user_id, ? FROM ${table("user_roles")} WHERE role_id = ?`,
+    [ROLE_DEVELOPER, LEGACY_ROLE_OPS]
+  );
+  await execute(`DELETE FROM ${table("user_roles")} WHERE role_id = ?`, [LEGACY_ROLE_OPS]);
+  await execute(`DELETE FROM ${table("roles")} WHERE id = ?`, [LEGACY_ROLE_OPS]);
+};
+
 const seedIfEmpty = async () => {
   const existing = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("users")}`);
   if ((existing?.c || 0) > 0) return;
@@ -316,20 +350,12 @@ const seedIfEmpty = async () => {
   const now = Date.now();
 
   await execute(
-    `INSERT INTO ${table("roles")} (id, name, description, permissions, created_at) VALUES
-      ('role-admin','管理员','系统管理员',?,?),
-      ('role-ops','运营','运营与客服',?,?)
-    `,
-    [JSON.stringify(["*"]), now, JSON.stringify(["dashboard", "users", "codes", "projects", "products"]), now]
-  );
-
-  await execute(
     `INSERT INTO ${table("users")} (id, username, password_hash, status, email, phone, department_id, remark, avatar, created_at, updated_at)
      VALUES ('u-admin','admin',?,'active','admin@example.com','18800000000',NULL,'系统管理员',NULL,?,?)`,
     [hashPassword("admin123"), now, now]
   );
 
-  await execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES ('u-admin','role-admin')`);
+  await execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES ('u-admin', ?)`, [ROLE_ADMIN]);
 
   await execute(
     `INSERT INTO ${table("projects")} (id, project_no, name, description, config, created_at, updated_at)

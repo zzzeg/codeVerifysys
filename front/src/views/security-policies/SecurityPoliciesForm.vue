@@ -193,21 +193,15 @@ onMounted(async () => {
       <span class="label">项目名称：</span>
       <el-select v-model="form.projectId" filterable style="width: 260px" :disabled="isEdit">
         <el-option label="请选择项目" value="" />
-        <el-option
-          v-for="project in (isEdit ? projects : availableProjectsForCreate)"
-          :key="project.id"
-          :label="project.name"
-          :value="project.id"
-        />
+        <el-option v-for="project in (isEdit ? projects : availableProjectsForCreate)" :key="project.id"
+          :label="project.name" :value="project.id" />
       </el-select>
     </div>
 
     <div class="row2">
       <span class="label">安全策略状态：</span>
-      <el-radio-group v-model="form.status">
-        <el-radio value="enabled">开启</el-radio>
-        <el-radio value="disabled">关闭</el-radio>
-      </el-radio-group>
+      <el-switch v-model="form.status" active-value="enabled" inactive-value="disabled" />
+      <span class="switch-status-text">{{ form.status === 'enabled' ? '开启' : '关闭' }}</span>
     </div>
 
     <template v-if="form.status === 'enabled'">
@@ -270,7 +264,7 @@ onMounted(async () => {
           <div class="section-title">验证接口安全策略</div>
           <div class="section-body">
             <div class="tip-warn">算法标识不能留空，建议使用自定义标识。</div>
-            <el-form label-width="140px">
+            <el-form label-width="100px">
               <el-form-item label="通信加密：">
                 <div class="algo-grid">
                   <div v-for="algo in algoTags" :key="algo" class="algo-row">
@@ -287,7 +281,7 @@ onMounted(async () => {
           <div class="section-title">辅助接口安全策略</div>
           <div class="section-body">
             <div class="tip-warn">算法标识不能留空，建议使用自定义标识。</div>
-            <el-form label-width="140px">
+            <el-form label-width="100px">
               <el-form-item label="通信加密：">
                 <div class="algo-grid">
                   <div v-for="algo in algoTags" :key="algo" class="algo-row">
@@ -336,9 +330,9 @@ onMounted(async () => {
 
 .section-title {
   margin-bottom: 10px;
-  font-size: 18px;
-  font-weight: 700;
-  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .help {
@@ -362,7 +356,7 @@ onMounted(async () => {
 .algo-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* gap: 10px; */
   flex-wrap: wrap;
 }
 

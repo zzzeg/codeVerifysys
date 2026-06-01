@@ -106,7 +106,7 @@ onMounted(fetchProjects)
 </script>
 
 <template>
-  <div>
+  <div class="form-shell">
     <!-- <h3 class="vs-ref-section-title">注册码生成</h3> -->
 
     <el-form class="generate-form" label-width="auto">
@@ -135,7 +135,7 @@ onMounted(fetchProjects)
       </el-form-item>
 
       <el-form-item>
-        <el-button type="warning" class="vs-ref-button action-btn" @click="handleGenerate" :loading="loading">生成注册码</el-button>
+        <el-button type="primary" class="vs-ref-button action-btn" @click="handleGenerate" :loading="loading">生成注册码</el-button>
         <el-button v-if="generated.length" plain @click="handleExport">导出注册码</el-button>
       </el-form-item>
     </el-form>
@@ -168,6 +168,6 @@ onMounted(fetchProjects)
 }
 
 .action-btn {
-  box-shadow: 0 14px 24px rgba(249, 115, 22, 0.24);
+  box-shadow: none;
 }
 </style>

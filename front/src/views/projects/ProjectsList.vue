@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
 
@@ -15,7 +16,8 @@ const list = ref<ProjectItem[]>([])
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
-const tableHeight = 'calc(100vh - 360px)'
+const filterDrawerOpen = ref(false)
+const tableHeight = 'var(--vs-table-max-height)'
 const router = useRouter()
 
 const normalizeList = (payload: unknown): ProjectItem[] => {
@@ -44,6 +46,20 @@ const fetchList = async () => {
   }
 }
 
+const handleSearch = async () => {
+  page.value = 1
+  await fetchList()
+  filterDrawerOpen.value = false
+}
+
+const resetSearch = async () => {
+  filters.keyword = ''
+  filters.notice = ''
+  page.value = 1
+  await fetchList()
+  filterDrawerOpen.value = false
+}
+
 const handlePageChange = (nextPage: number) => {
   page.value = nextPage
 }
@@ -67,20 +83,50 @@ const goToProjectCodes = (row: ProjectItem) => {
   })
 }
 
-onMounted(fetchList)
+const openMobileFilter = () => {
+  filterDrawerOpen.value = true
+}
+
+onMounted(() => {
+  window.addEventListener('vs-open-mobile-filter', openMobileFilter)
+  fetchList()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('vs-open-mobile-filter', openMobileFilter)
+})
 </script>
 
 <template>
-  <div>
-    <div class="vs-ref-toolbar">
-      <span class="label">项目名称：</span>
-      <el-select v-model="filters.keyword" clearable placeholder="全部项目" style="width: 180px">
-        <el-option v-for="project in list" :key="project.id" :label="project.name" :value="project.name" />
-      </el-select>
-      <span class="label">项目备注：</span>
-      <el-input v-model="filters.notice" style="width: 180px" />
-      <el-button type="primary" class="vs-ref-button" @click="fetchList">查询</el-button>
+  <div class="pure-table-page">
+    <div class="vs-ref-toolbar pure-table-toolbar">
+      <div class="toolbar-left">
+        <span class="label">项目名称：</span>
+        <el-select v-model="filters.keyword" clearable placeholder="全部项目" style="width: 180px">
+          <el-option v-for="project in list" :key="project.id" :label="project.name" :value="project.name" />
+        </el-select>
+        <span class="label">项目备注：</span>
+        <el-input v-model="filters.notice" style="width: 180px" />
+        <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
+      </div>
     </div>
+
+    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer" append-to-body>
+      <div class="mobile-filter-body">
+        <div class="mobile-filter-scroll">
+          <label>项目名称</label>
+          <el-select v-model="filters.keyword" clearable placeholder="全部项目">
+            <el-option v-for="project in list" :key="project.id" :label="project.name" :value="project.name" />
+          </el-select>
+          <label>项目备注</label>
+          <el-input v-model="filters.notice" clearable />
+        </div>
+        <div class="mobile-filter-actions">
+          <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+          <el-button :icon="Refresh" @click="resetSearch">重置</el-button>
+        </div>
+      </div>
+    </el-drawer>
 
     <el-table :data="pagedList" :max-height="tableHeight" v-loading="loading">
       <el-table-column prop="name" label="项目名称" />

@@ -55,3 +55,22 @@ export const sendVerificationEmail = async (opts: { to: string; code: string; pu
   await t.sendMail({ from, to: opts.to, subject, text, html });
 };
 
+export const sendOrderDeliveryEmail = async (opts: { to: string; orderId: string; productName: string; cards: string[] }) => {
+  const from = getRequiredEnv("VERIFYSYS_SMTP_FROM");
+  const product = process.env.VERIFYSYS_PRODUCT_NAME || "VerifySys";
+  const subject = `${product} 订单发货通知`;
+  const cardText = opts.cards.join("\n");
+  const text = `订单号：${opts.orderId}\n商品：${opts.productName}\n卡密：\n${cardText}`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; line-height: 1.7;">
+      <h2 style="margin:0 0 12px 0;">订单发货通知</h2>
+      <p style="margin:0 0 8px 0;">订单号：<strong>${opts.orderId}</strong></p>
+      <p style="margin:0 0 8px 0;">商品：<strong>${opts.productName}</strong></p>
+      <p style="margin:12px 0 8px 0;">卡密如下：</p>
+      <pre style="margin:0; padding:12px 14px; background:#f3f4f6; border-radius:10px; white-space:pre-wrap; word-break:break-all;">${cardText}</pre>
+    </div>
+  `.trim();
+
+  const t = getTransporter();
+  await t.sendMail({ from, to: opts.to, subject, text, html });
+};

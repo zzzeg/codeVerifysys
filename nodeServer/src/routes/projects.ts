@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { uuid, type Project, type RegisterCode, type CustomData } from "../db";
-import { respond, respondError, authMiddleware } from "../middlewares/auth";
+import { respond, respondError, authMiddleware, requirePermission } from "../middlewares/auth";
 import { execute, query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(requirePermission("projects"));
 
 const parseJsonObj = (val: any): Record<string, any> => {
   if (!val) return {};
@@ -69,6 +70,24 @@ router.get("/:id", async (req, res) => {
 router.post("/", async (req, res) => {
   const name = (req.body?.name || "").trim();
   if (!name) return respondError(res, "项目名称必填");
+  const config = req.body?.config && typeof req.body.config === "object" ? req.body.config : {};
+  const trialMode = String((config as any).trialMode || "");
+  const trialTime = Number((config as any).trialTime);
+  const deviceTrialTime = Number((config as any).deviceTrialTime);
+  const unbindDeductMinutes = Number((config as any).unbindDeductMinutes);
+
+  if (trialMode === "开启试用模式") {
+    if (!Number.isFinite(trialTime) || trialTime <= 0 || trialTime > 14400) {
+      return respondError(res, "试用时间需在 1 到 14400 分钟之间", 400);
+    }
+    if (!Number.isFinite(deviceTrialTime) || deviceTrialTime <= 0 || deviceTrialTime > 720) {
+      return respondError(res, "单台电脑试用时间需在 1 到 720 分钟之间", 400);
+    }
+  } else if (trialMode === "关闭试用模式") {
+    if (!Number.isFinite(unbindDeductMinutes) || unbindDeductMinutes < 0 || unbindDeductMinutes > 720) {
+      return respondError(res, "解绑扣时需在 0 到 720 分钟之间", 400);
+    }
+  }
 
   const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table("projects")} WHERE name = ?`, [name]);
   if (exists) return respondError(res, "项目名称已存在");
@@ -78,7 +97,6 @@ router.post("/", async (req, res) => {
   const projectNoRow = await queryOne<{ n: number }>(`SELECT COALESCE(MAX(project_no), 0) as n FROM ${table("projects")}`);
   const projectNo = Number(projectNoRow?.n || 0) + 1;
   const description = req.body?.description || req.body?.notice || null;
-  const config = req.body?.config && typeof req.body.config === "object" ? req.body.config : {};
 
   await execute(
     `INSERT INTO ${table("projects")} (id, project_no, name, description, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -93,6 +111,24 @@ router.put("/:id", async (req, res) => {
   const name = req.body?.name;
   const description = req.body?.description;
   const config = typeof req.body?.config === "undefined" ? undefined : req.body.config;
+  if (config && typeof config === "object") {
+    const trialMode = String((config as any).trialMode || "");
+    const trialTime = Number((config as any).trialTime);
+    const deviceTrialTime = Number((config as any).deviceTrialTime);
+    const unbindDeductMinutes = Number((config as any).unbindDeductMinutes);
+    if (trialMode === "开启试用模式") {
+      if (!Number.isFinite(trialTime) || trialTime <= 0 || trialTime > 14400) {
+        return respondError(res, "试用时间需在 1 到 14400 分钟之间", 400);
+      }
+      if (!Number.isFinite(deviceTrialTime) || deviceTrialTime <= 0 || deviceTrialTime > 720) {
+        return respondError(res, "单台电脑试用时间需在 1 到 720 分钟之间", 400);
+      }
+    } else if (trialMode === "关闭试用模式") {
+      if (!Number.isFinite(unbindDeductMinutes) || unbindDeductMinutes < 0 || unbindDeductMinutes > 720) {
+        return respondError(res, "解绑扣时需在 0 到 720 分钟之间", 400);
+      }
+    }
+  }
 
   await execute(
     `UPDATE ${table("projects")}

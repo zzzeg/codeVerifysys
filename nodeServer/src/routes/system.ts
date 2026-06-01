@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { respond, authMiddleware } from "../middlewares/auth";
+import { respond, authMiddleware, requireAdmin } from "../middlewares/auth";
 import { execute, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
 import type { SystemConfig } from "../db";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(requireAdmin());
 
 const parseConfig = (val: any): SystemConfig => {
   if (!val) return { siteName: "VerifySys 控制台", logo: "/uploads/logo.png", uploadLimitMb: 5, params: { locale: "zh-CN" } };
@@ -66,4 +67,3 @@ router.get("/dict/:type", (req, res) => {
 });
 
 export default router;
-

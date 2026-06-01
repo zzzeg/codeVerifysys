@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
 
@@ -24,7 +25,8 @@ const loading = ref(false)
 const total = ref(0)
 const projects = ref<ProjectOption[]>([])
 const query = reactive({ projectId: '', key: '', remark: '', page: 1, pageSize: 10 })
-const tableMaxHeight = 'calc(100vh - 400px)'
+const filterDrawerOpen = ref(false)
+const tableMaxHeight = 'var(--vs-table-max-height)'
 
 const fetchProjects = async () => {
   const resp = await request.get('/api/projects')
@@ -50,6 +52,7 @@ const fetchData = async () => {
 const handleSearch = () => {
   query.page = 1
   fetchData()
+  filterDrawerOpen.value = false
 }
 
 const resetSearch = () => {
@@ -59,6 +62,7 @@ const resetSearch = () => {
   query.page = 1
   query.pageSize = 10
   fetchData()
+  filterDrawerOpen.value = false
 }
 
 const removeData = async (row: CustomDataItem) => {
@@ -79,27 +83,58 @@ const handleSizeChange = (size: number) => {
   fetchData()
 }
 
+const openMobileFilter = () => {
+  filterDrawerOpen.value = true
+}
+
 onMounted(async () => {
+  window.addEventListener('vs-open-mobile-filter', openMobileFilter)
   await fetchProjects()
   await fetchData()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('vs-open-mobile-filter', openMobileFilter)
 })
 </script>
 
 <template>
-  <div>
-    <div class="vs-ref-toolbar">
-      <span class="label">项目名称：</span>
-      <el-select v-model="query.projectId" filterable style="width: 200px">
-        <el-option label="全部项目" value="" />
-        <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
-      </el-select>
-      <span class="label">Key 值：</span>
-      <el-input v-model="query.key" style="width: 220px" clearable />
-      <span class="label">备注：</span>
-      <el-input v-model="query.remark" style="width: 220px" clearable />
-      <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
-      <el-button @click="resetSearch">重置</el-button>
+  <div class="pure-table-page">
+    <div class="vs-ref-toolbar pure-table-toolbar">
+      <div class="toolbar-left">
+        <span class="label">项目名称：</span>
+        <el-select v-model="query.projectId" filterable style="width: 200px">
+          <el-option label="全部项目" value="" />
+          <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+        </el-select>
+        <span class="label">Key 值：</span>
+        <el-input v-model="query.key" style="width: 220px" clearable />
+        <span class="label">备注：</span>
+        <el-input v-model="query.remark" style="width: 220px" clearable />
+        <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
+        <el-button @click="resetSearch">重置</el-button>
+      </div>
     </div>
+
+    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer" append-to-body>
+      <div class="mobile-filter-body">
+        <div class="mobile-filter-scroll">
+          <label>项目名称</label>
+          <el-select v-model="query.projectId" filterable>
+            <el-option label="全部项目" value="" />
+            <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+          </el-select>
+          <label>Key 值</label>
+          <el-input v-model="query.key" clearable />
+          <label>备注</label>
+          <el-input v-model="query.remark" clearable />
+        </div>
+        <div class="mobile-filter-actions">
+          <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+          <el-button :icon="Refresh" @click="resetSearch">重置</el-button>
+        </div>
+      </div>
+    </el-drawer>
 
     <el-table :data="list" :max-height="tableMaxHeight" v-loading="loading" style="width: 100%">
       <el-table-column prop="projectName" label="项目名称" width="180" />

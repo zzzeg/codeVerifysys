@@ -56,4 +56,3 @@ router.get("/logs", async (req: AuthRequest, res) => {
 });
 
 export default router;
-

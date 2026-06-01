@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../store/auth'
+import { finishProgress, startProgress } from '../utils/progress'
 import BaseLayout from '../layouts/BaseLayout.vue'
 import Login from '../views/Login.vue'
 import Users from '../views/Users.vue'
@@ -8,7 +9,6 @@ import UsersList from '../views/users/UsersList.vue'
 import UsersForm from '../views/users/UsersForm.vue'
 import Roles from '../views/Roles.vue'
 import RolesList from '../views/roles/RolesList.vue'
-import RolesForm from '../views/roles/RolesForm.vue'
 import ProjectsLayout from '../views/projects/ProjectsLayout.vue'
 import ProjectsList from '../views/projects/ProjectsList.vue'
 import ProjectsCreate from '../views/projects/ProjectsCreate.vue'
@@ -31,8 +31,25 @@ import SecurityPolicies from '../views/SecurityPolicies.vue'
 import SecurityPoliciesList from '../views/security-policies/SecurityPoliciesList.vue'
 import SecurityPoliciesForm from '../views/security-policies/SecurityPoliciesForm.vue'
 import AutoDelivery from '../views/AutoDelivery.vue'
+import Forbidden from '../views/Forbidden.vue'
+import PublicProduct from '../views/PublicProduct.vue'
+
+const hasRoutePermission = (user: { username?: string; roles?: string[]; permissions?: string[] } | null, requiredPermissions?: string[]) => {
+  if (!requiredPermissions?.length) return true
+  const roles = user?.roles || []
+  const permissions = user?.permissions || []
+  const username = user?.username || ''
+  if (roles.includes('role-admin') || permissions.includes('*') || username === 'admin') return true
+  return requiredPermissions.some((permission) => permissions.includes(permission))
+}
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/buy/:code',
+    name: 'public-product',
+    component: PublicProduct,
+    meta: { title: '商品购买' },
+  },
   {
     path: '/login',
     name: 'login',
@@ -47,6 +64,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'users',
         component: Users,
+        meta: { requiresAdmin: true },
         children: [
           { path: '', redirect: '/users/list' },
           { path: 'list', name: 'users-list', component: UsersList, meta: { title: '用户管理' } },
@@ -57,16 +75,18 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'roles',
         component: Roles,
+        meta: { requiresAdmin: true },
         children: [
           { path: '', redirect: '/roles/list' },
-          { path: 'list', name: 'roles-list', component: RolesList, meta: { title: '角色管理' } },
-          { path: 'create', name: 'roles-create', component: RolesForm, meta: { title: '新增角色' } },
-          { path: 'edit/:id', name: 'roles-edit', component: RolesForm, meta: { title: '编辑角色' } },
+          { path: 'list', name: 'roles-list', component: RolesList, meta: { title: '角色配置' } },
+          { path: 'create', redirect: '/roles/list' },
+          { path: 'edit/:id', redirect: '/roles/list' },
         ],
       },
       {
         path: 'projects',
         component: ProjectsLayout,
+        meta: { permissions: ['projects'] },
         children: [
           { path: '', redirect: '/projects/list' },
           { path: 'list', name: 'projects-list', component: ProjectsList, meta: { title: '项目列表' } },
@@ -76,6 +96,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'codes',
         component: CodesLayout,
+        meta: { permissions: ['codes'] },
         children: [
           { path: '', redirect: '/codes/list' },
           { path: 'list', name: 'codes-list', component: CodesList, meta: { title: '注册码列表' } },
@@ -85,6 +106,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'products',
         component: Products,
+        meta: { permissions: ['products'] },
         children: [
           { path: '', redirect: '/products/list' },
           { path: 'list', name: 'products-list', component: ProductsList, meta: { title: '商品管理' } },
@@ -95,6 +117,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'custom-data',
         component: CustomData,
+        meta: { permissions: ['custom-data'] },
         children: [
           { path: '', redirect: '/custom-data/list' },
           { path: 'list', name: 'custom-data-list', component: CustomDataList, meta: { title: '自定义数据' } },
@@ -106,6 +129,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'security-policies',
         component: SecurityPolicies,
+        meta: { permissions: ['security-policies'] },
         children: [
           { path: '', redirect: '/security-policies/list' },
           { path: 'list', name: 'security-policies-list', component: SecurityPoliciesList, meta: { title: '安全策略管理' } },
@@ -113,10 +137,14 @@ const routes: RouteRecordRaw[] = [
           { path: 'edit/:id', name: 'security-policies-edit', component: SecurityPoliciesForm, meta: { title: '编辑安全策略' } },
         ],
       },
-      { path: 'auto-delivery', name: 'auto-delivery', component: AutoDelivery, meta: { title: '自动发卡' } },
+      { path: 'auto-delivery', redirect: '/auto-delivery/list' },
+      { path: 'auto-delivery/list', name: 'auto-delivery-list', component: AutoDelivery, meta: { title: '商品管理', permissions: ['auto-delivery'] } },
+      { path: 'auto-delivery/create', name: 'auto-delivery-create', component: AutoDelivery, meta: { title: '商品添加', permissions: ['auto-delivery'] } },
+      { path: 'auto-delivery/edit/:id', name: 'auto-delivery-edit', component: AutoDelivery, meta: { title: '编辑商品', permissions: ['auto-delivery'] } },
       {
         path: 'logs',
         component: Logs,
+        meta: { requiresAdmin: true },
         children: [
           { path: '', redirect: '/logs/operation' },
           { path: 'operation', name: 'logs-operation', component: LogsOperation, meta: { title: '操作日志' } },
@@ -125,6 +153,7 @@ const routes: RouteRecordRaw[] = [
         ],
       },
       { path: 'profile', name: 'profile', component: Profile, meta: { title: '个人中心' } },
+      { path: '403', name: 'forbidden', component: Forbidden, meta: { title: '无权访问' } },
     ],
   },
 ]
@@ -135,6 +164,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
+  startProgress()
   const auth = useAuthStore()
 
   if (to.path !== '/login' && !auth.token) {
@@ -158,6 +188,15 @@ router.beforeEach((to, _from, next) => {
     return Boolean(auth.token && auth.currentUser)
   }
 
+  const isAdminRoute = to.matched.some((record) => record.meta?.requiresAdmin)
+  const requiredPermissions = to.matched.flatMap((record) => (record.meta?.permissions as string[] | undefined) || [])
+  const hasAdminAccess = () => {
+    const roles = auth.currentUser?.roles || []
+    const permissions = auth.currentUser?.permissions || []
+    const username = auth.currentUser?.username || ''
+    return roles.includes('role-admin') || permissions.includes('*') || username === 'admin'
+  }
+
   // Visiting login with a token: only skip login if the session is valid.
   if (to.path === '/login' && auth.token) {
     document.title = (to.meta.title as string) || 'VerifySys'
@@ -178,6 +217,14 @@ router.beforeEach((to, _from, next) => {
           next({ path: '/login', query: { redirect: to.fullPath } })
           return
         }
+        if (isAdminRoute && !hasAdminAccess()) {
+          next('/403')
+          return
+        }
+        if (!hasRoutePermission(auth.currentUser, requiredPermissions)) {
+          next('/403')
+          return
+        }
         document.title = (to.meta.title as string) || 'VerifySys'
         next()
       })
@@ -189,6 +236,14 @@ router.beforeEach((to, _from, next) => {
 
   document.title = (to.meta.title as string) || 'VerifySys'
   next()
+})
+
+router.afterEach(() => {
+  finishProgress()
+})
+
+router.onError(() => {
+  finishProgress()
 })
 
 export default router

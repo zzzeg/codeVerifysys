@@ -4,6 +4,7 @@ import { SECRET } from "../config";
 import { uuid, type User } from "../db";
 import { respond, respondError, authMiddleware, type AuthRequest } from "../middlewares/auth";
 import { hashPassword, verifyPassword } from "../utils";
+import { ROLE_DEVELOPER } from "../constants/roles";
 import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
 import { sendVerificationEmail } from "../utils/mailer";
@@ -139,7 +140,7 @@ router.post("/register", async (req, res) => {
        VALUES (?, ?, ?, 'active', ?, NULL, NULL, NULL, NULL, ?, ?)`,
       [id, username, hashPassword(password), email || null, now, now]
     );
-    await conn.execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES (?, 'role-ops')`, [id]);
+    await conn.execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES (?, ?)`, [id, ROLE_DEVELOPER]);
   });
 
   return respond(res, { id });
@@ -186,6 +187,29 @@ router.post("/login", async (req, res) => {
     row.id,
   ]);
   const roleIds = roleRows.map((r) => r.role_id);
+  const permissionRows = await query<{ permissions: any }>(
+    `SELECT r.permissions
+     FROM ${table("roles")} r
+     INNER JOIN ${table("user_roles")} ur ON ur.role_id = r.id
+     WHERE ur.user_id = ?`,
+    [row.id]
+  );
+  const permissions = Array.from(
+    new Set(
+      permissionRows.flatMap((permissionRow) => {
+        if (Array.isArray(permissionRow.permissions)) return permissionRow.permissions.map(String);
+        if (typeof permissionRow.permissions === "string") {
+          try {
+            const parsed = JSON.parse(permissionRow.permissions);
+            return Array.isArray(parsed) ? parsed.map(String) : [];
+          } catch {
+            return [];
+          }
+        }
+        return [];
+      })
+    )
+  );
   const token = jwt.sign({ userId: row.id, roles: roleIds }, SECRET, { expiresIn: remember ? "7d" : "12h" });
 
   await execute(
@@ -193,8 +217,16 @@ router.post("/login", async (req, res) => {
     [uuid(), username, ip, now]
   );
 
-  const user: Pick<User, "id" | "username" | "roleIds"> = { id: row.id, username: row.username, roleIds };
-  return respond(res, { token, user: { id: user.id, username: user.username, roles: user.roleIds } });
+  const user: Pick<User, "id" | "username" | "roleIds" | "permissions"> = {
+    id: row.id,
+    username: row.username,
+    roleIds,
+    permissions,
+  };
+  return respond(res, {
+    token,
+    user: { id: user.id, username: user.username, roles: user.roleIds, permissions: user.permissions },
+  });
 });
 
 router.post("/logout", (_req, res) => respond(res, {}));
@@ -246,14 +278,7 @@ router.post("/reset-password", async (req, res) => {
     return respond(res, {});
   }
 
-  // 旧流程兼容：username 直接重置（仅用于开发/内部）
-  const { username } = req.body || {};
-  if (!username) return respondError(res, "用户名缺失", 400);
-  const row = await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE username = ?`, [username]);
-  if (!row) return respondError(res, "用户不存在", 404);
-  const pwd = hashPassword(newPassword || "123456");
-  await execute(`UPDATE ${table("users")} SET password_hash = ?, updated_at = ? WHERE id = ?`, [pwd, Date.now(), row.id]);
-  return respond(res, {});
+  return respondError(res, "请使用邮箱验证码重置密码", 400);
 });
 
 export default router;

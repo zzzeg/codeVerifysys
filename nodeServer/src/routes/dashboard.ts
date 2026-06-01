@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { respond, authMiddleware } from "../middlewares/auth";
+import { respond, authMiddleware, requireAdmin } from "../middlewares/auth";
 import { query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(requireAdmin());
 
 const count = async (tbl: string) => {
   const row = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table(tbl)}`);
@@ -39,4 +40,3 @@ router.get("/recent", async (_req, res) => {
 });
 
 export default router;
-

@@ -26,23 +26,37 @@ const form = reactive({
 const isTrialModeEnabled = computed(() => form.trialMode === trialModeOptions.enabled)
 
 const handleSubmit = async () => {
+  if (!form.name.trim()) return ElMessage.warning('项目名称不能为空')
+  if (isTrialModeEnabled.value) {
+    const trialTime = Number(form.trialTime)
+    const deviceTrialTime = Number(form.deviceTrialTime)
+    if (!Number.isFinite(trialTime) || trialTime <= 0 || trialTime > 14400) return ElMessage.warning('试用时间需在 1 到 14400 分钟之间')
+    if (!Number.isFinite(deviceTrialTime) || deviceTrialTime <= 0 || deviceTrialTime > 720) return ElMessage.warning('单台电脑试用时间需在 1 到 720 分钟之间')
+  } else {
+    const unbindDeductMinutes = Number(form.unbindDeductMinutes)
+    if (!Number.isFinite(unbindDeductMinutes) || unbindDeductMinutes < 0 || unbindDeductMinutes > 720) {
+      return ElMessage.warning('解绑扣时需在 0 到 720 分钟之间')
+    }
+  }
   await request.post('/api/projects', { name: form.name, description: form.notice, config: form })
   ElMessage.success('新建项目成功')
 }
 </script>
 
 <template>
-  <div>
+  <div class="form-shell">
     <el-form :model="form" label-width="200" class="project-form">
       <el-form-item label="项目名称：" required>
         <el-input v-model="form.name" placeholder="支持中文、字母、数字" style="width: 320px" />
       </el-form-item>
 
       <el-form-item label="试用模式：" required>
-        <el-radio-group v-model="form.trialMode">
-          <el-radio :label="trialModeOptions.enabled">开启试用模式</el-radio>
-          <el-radio :label="trialModeOptions.disabled">关闭试用模式</el-radio>
-        </el-radio-group>
+        <el-switch
+          v-model="form.trialMode"
+          :active-value="trialModeOptions.enabled"
+          :inactive-value="trialModeOptions.disabled"
+        />
+        <span class="switch-status-text">{{ isTrialModeEnabled ? '开启' : '关闭' }}</span>
       </el-form-item>
 
       <template v-if="isTrialModeEnabled">
@@ -63,24 +77,18 @@ const handleSubmit = async () => {
       </el-form-item>
 
       <el-form-item label="开启机器码绑定：" required>
-        <el-radio-group v-model="form.bindDevice">
-          <el-radio :label="true">启用</el-radio>
-          <el-radio :label="false">关闭</el-radio>
-        </el-radio-group>
+        <el-switch v-model="form.bindDevice" />
+        <span class="switch-status-text">{{ form.bindDevice ? '启用' : '禁用' }}</span>
       </el-form-item>
 
       <el-form-item label="客户端自己解绑：" required>
-        <el-radio-group v-model="form.clientUnbind">
-          <el-radio :label="true">启用</el-radio>
-          <el-radio :label="false">关闭</el-radio>
-        </el-radio-group>
+        <el-switch v-model="form.clientUnbind" />
+        <span class="switch-status-text">{{ form.clientUnbind ? '启用' : '禁用' }}</span>
       </el-form-item>
 
       <el-form-item label="是否顶号：" required>
-        <el-radio-group v-model="form.vip">
-          <el-radio :label="true">启用</el-radio>
-          <el-radio :label="false">关闭</el-radio>
-        </el-radio-group>
+        <el-switch v-model="form.vip" />
+        <span class="switch-status-text">{{ form.vip ? '启用' : '禁用' }}</span>
       </el-form-item>
 
       <el-form-item label="解绑密码：">
@@ -97,7 +105,7 @@ const handleSubmit = async () => {
       </el-form-item>
 
       <el-form-item label="&nbsp;">
-        <el-button type="warning" class="vs-ref-button action-btn" @click="handleSubmit">确认</el-button>
+        <el-button type="primary" class="vs-ref-button action-btn" @click="handleSubmit">确认</el-button>
       </el-form-item>
     </el-form>
   </div>
@@ -114,6 +122,6 @@ const handleSubmit = async () => {
 }
 
 .action-btn {
-  box-shadow: 0 14px 24px rgba(249, 115, 22, 0.24);
+  box-shadow: none;
 }
 </style>

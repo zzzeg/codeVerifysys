@@ -6,7 +6,6 @@ import { formatDateTimeCell } from '../../utils/datetime'
 const list = ref<any[]>([])
 const page = ref(1)
 const pageSize = ref(30)
-const tableHeight = 'calc(100vh - 260px)'
 
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
@@ -31,8 +30,8 @@ onMounted(fetchLogs)
 </script>
 
 <template>
-  <div>
-    <el-table :data="pagedList" :max-height="tableHeight" style="width: 100%" size="small">
+  <div class="log-page">
+    <el-table :data="pagedList" height="100%" style="width: 100%" size="small">
       <el-table-column prop="user" label="用户" />
       <el-table-column prop="status" label="状态" />
       <el-table-column prop="ip" label="IP" />

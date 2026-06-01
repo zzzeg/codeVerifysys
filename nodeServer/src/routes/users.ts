@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { uuid, type User, type UserStatus } from "../db";
-import { respond, respondError, authMiddleware } from "../middlewares/auth";
+import { respond, respondError, authMiddleware, requireAdmin } from "../middlewares/auth";
 import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
 import { hashPassword } from "../utils";
+import { ROLE_DEVELOPER } from "../constants/roles";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(requireAdmin());
 
 const parseRoleIds = (raw: string | null) => (raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : []);
 
@@ -15,6 +17,7 @@ const mapUserRow = (row: any): User => ({
   username: row.username,
   passwordHash: row.password_hash,
   roleIds: parseRoleIds(row.role_ids || null),
+  permissions: [],
   email: row.email || undefined,
   phone: row.phone || undefined,
   status: row.status === "disabled" ? "disabled" : "active",
@@ -73,7 +76,7 @@ router.get("/:id", async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { username, password = "123456", roleIds = [], email, phone, departmentId, remark } = req.body || {};
+  const { username, password = "123456", roleIds, email, phone, departmentId, remark } = req.body || {};
   if (!username) return respondError(res, "用户名必填");
 
   const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE username = ?`, [username]);
@@ -81,7 +84,7 @@ router.post("/", async (req, res) => {
 
   const id = uuid();
   const now = Date.now();
-  const status: UserStatus = "active";
+  const status: UserStatus = req.body?.status === "disabled" ? "disabled" : "active";
 
   await withTransaction(async (conn) => {
     await conn.execute(
@@ -89,7 +92,8 @@ router.post("/", async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       [id, username, hashPassword(password), status, email || null, phone || null, departmentId || null, remark || null, now, now]
     );
-    const uniqueRoleIds = Array.from(new Set((roleIds as string[]).filter(Boolean)));
+    const requestedRoleIds = Array.isArray(roleIds) ? roleIds : [ROLE_DEVELOPER];
+    const uniqueRoleIds = Array.from(new Set((requestedRoleIds as string[]).filter(Boolean)));
     for (const roleId of uniqueRoleIds) {
       await conn.execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES (?, ?)`, [id, roleId]);
     }
@@ -187,4 +191,3 @@ router.get("/export", async (_req, res) => {
 });
 
 export default router;
-

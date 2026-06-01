@@ -25,6 +25,11 @@ const instance = axios.create({
   timeout: 15000,
 })
 
+export const publicRequest = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE || 'http://localhost:3000',
+  timeout: 15000,
+})
+
 instance.interceptors.request.use((config) => {
   const auth = useAuthStore()
   if (auth.token) {

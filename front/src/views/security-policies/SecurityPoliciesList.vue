@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
 import { formatDateTime } from '../../utils/datetime'
@@ -29,7 +30,8 @@ const total = ref(0)
 const projects = ref<ProjectOption[]>([])
 const filters = reactive({ projectId: '', status: '', mode: '' })
 const pagination = reactive({ page: 1, pageSize: 10 })
-const tableMaxHeight = 'calc(100vh - 400px)'
+const filterDrawerOpen = ref(false)
+const tableMaxHeight = 'var(--vs-table-max-height)'
 
 const statusText = (status: PolicyStatus) => (status === 'enabled' ? '开启' : '关闭')
 const modeText = (mode: PolicyMode) => (mode === 'advanced' ? '高级' : '初级')
@@ -65,6 +67,16 @@ const fetchPolicies = async () => {
 const handleSearch = () => {
   pagination.page = 1
   fetchPolicies()
+  filterDrawerOpen.value = false
+}
+
+const resetSearch = () => {
+  filters.projectId = ''
+  filters.status = ''
+  filters.mode = ''
+  pagination.page = 1
+  fetchPolicies()
+  filterDrawerOpen.value = false
 }
 
 const removePolicy = async (row: PolicyItem) => {
@@ -85,34 +97,73 @@ const handleSizeChange = (size: number) => {
   fetchPolicies()
 }
 
+const openMobileFilter = () => {
+  filterDrawerOpen.value = true
+}
+
 onMounted(async () => {
+  window.addEventListener('vs-open-mobile-filter', openMobileFilter)
   await fetchProjects()
   await fetchPolicies()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('vs-open-mobile-filter', openMobileFilter)
 })
 </script>
 
 <template>
-  <div>
-    <div class="vs-ref-toolbar">
-      <span class="label">项目名称：</span>
-      <el-select v-model="filters.projectId" filterable style="width: 220px" @change="handleSearch">
-        <el-option label="全部项目" value="" />
-        <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
-      </el-select>
-      <span class="label">策略状态：</span>
-      <el-select v-model="filters.status" style="width: 140px" @change="handleSearch">
-        <el-option label="全部" value="" />
-        <el-option label="开启" value="enabled" />
-        <el-option label="关闭" value="disabled" />
-      </el-select>
-      <span class="label">策略模式：</span>
-      <el-select v-model="filters.mode" style="width: 140px" @change="handleSearch">
-        <el-option label="全部" value="" />
-        <el-option label="初级" value="basic" />
-        <el-option label="高级" value="advanced" />
-      </el-select>
-      <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
+  <div class="pure-table-page">
+    <div class="vs-ref-toolbar pure-table-toolbar">
+      <div class="toolbar-left">
+        <span class="label">项目名称：</span>
+        <el-select v-model="filters.projectId" filterable style="width: 220px" @change="handleSearch">
+          <el-option label="全部项目" value="" />
+          <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+        </el-select>
+        <span class="label">策略状态：</span>
+        <el-select v-model="filters.status" style="width: 140px" @change="handleSearch">
+          <el-option label="全部" value="" />
+          <el-option label="开启" value="enabled" />
+          <el-option label="关闭" value="disabled" />
+        </el-select>
+        <span class="label">策略模式：</span>
+        <el-select v-model="filters.mode" style="width: 140px" @change="handleSearch">
+          <el-option label="全部" value="" />
+          <el-option label="初级" value="basic" />
+          <el-option label="高级" value="advanced" />
+        </el-select>
+        <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
+      </div>
     </div>
+
+    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer" append-to-body>
+      <div class="mobile-filter-body">
+        <div class="mobile-filter-scroll">
+          <label>项目名称</label>
+          <el-select v-model="filters.projectId" filterable>
+            <el-option label="全部项目" value="" />
+            <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+          </el-select>
+          <label>策略状态</label>
+          <el-select v-model="filters.status">
+            <el-option label="全部" value="" />
+            <el-option label="开启" value="enabled" />
+            <el-option label="关闭" value="disabled" />
+          </el-select>
+          <label>策略模式</label>
+          <el-select v-model="filters.mode">
+            <el-option label="全部" value="" />
+            <el-option label="初级" value="basic" />
+            <el-option label="高级" value="advanced" />
+          </el-select>
+        </div>
+        <div class="mobile-filter-actions">
+          <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+          <el-button :icon="Refresh" @click="resetSearch">重置</el-button>
+        </div>
+      </div>
+    </el-drawer>
 
     <el-table :data="list" :max-height="tableMaxHeight" v-loading="loading" style="width: 100%">
       <el-table-column prop="projectName" label="项目名称">
