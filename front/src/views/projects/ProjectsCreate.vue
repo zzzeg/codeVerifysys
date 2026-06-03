@@ -45,17 +45,14 @@ const handleSubmit = async () => {
 
 <template>
   <div class="form-shell">
-    <el-form :model="form" label-width="200" class="project-form">
+    <el-form :model="form" label-width="auto" class="project-form">
       <el-form-item label="项目名称：" required>
         <el-input v-model="form.name" placeholder="支持中文、字母、数字" style="width: 320px" />
       </el-form-item>
 
       <el-form-item label="试用模式：" required>
-        <el-switch
-          v-model="form.trialMode"
-          :active-value="trialModeOptions.enabled"
-          :inactive-value="trialModeOptions.disabled"
-        />
+        <el-switch v-model="form.trialMode" :active-value="trialModeOptions.enabled"
+          :inactive-value="trialModeOptions.disabled" />
         <span class="switch-status-text">{{ isTrialModeEnabled ? '开启' : '关闭' }}</span>
       </el-form-item>
 

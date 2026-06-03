@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import request from '../utils/request'
+import { publicRequest } from '../utils/request'
 import type { ApiResp } from '../utils/request'
 import { useAuthStore } from '../store/auth'
 import illustration from '../assets/login-illustration.svg'
@@ -73,9 +73,10 @@ const getRedirectTarget = () => {
 }
 
 const handleLogin = async () => {
+  if (loginForm.loading) return
   loginForm.loading = true
   try {
-    const resp = await request.post<ApiResp<LoginResult>>('/api/auth/login', {
+    const resp = await publicRequest.post<ApiResp<LoginResult>>('/api/auth/login', {
       username: loginForm.username,
       password: loginForm.password,
       remember: loginForm.remember,
@@ -119,7 +120,7 @@ const sendEmailCode = async (purpose: 'register' | 'reset') => {
   if (!email.trim()) return ElMessage.warning('请输入邮箱')
 
   try {
-    const resp = await request.post<ApiResp<{ expireAt: number; debugCode?: string }>>('/api/auth/email-code', {
+    const resp = await publicRequest.post<ApiResp<{ expireAt: number; debugCode?: string }>>('/api/auth/email-code', {
       email,
       purpose,
     })
@@ -141,6 +142,7 @@ const sendEmailCode = async (purpose: 'register' | 'reset') => {
 }
 
 const handleRegister = async () => {
+  if (registerForm.loading) return
   if (!registerForm.username.trim()) return ElMessage.warning('请输入用户名')
   if (!registerForm.email.trim()) return ElMessage.warning('请输入邮箱')
   if (!registerForm.emailCode.trim()) return ElMessage.warning('请输入邮箱验证码')
@@ -149,7 +151,7 @@ const handleRegister = async () => {
 
   registerForm.loading = true
   try {
-    const resp = await request.post<ApiResp<{ id: string }>>('/api/auth/register', {
+    const resp = await publicRequest.post<ApiResp<{ id: string }>>('/api/auth/register', {
       username: registerForm.username,
       email: registerForm.email,
       emailCode: registerForm.emailCode,
@@ -158,7 +160,7 @@ const handleRegister = async () => {
     if (resp.data.code !== 200) return ElMessage.error(resp.data.message || '注册失败')
 
     ElMessage.success('注册成功，正在登录...')
-    const loginResp = await request.post<ApiResp<LoginResult>>('/api/auth/login', {
+    const loginResp = await publicRequest.post<ApiResp<LoginResult>>('/api/auth/login', {
       username: registerForm.username,
       password: registerForm.password,
       remember: true,
@@ -173,6 +175,7 @@ const handleRegister = async () => {
 }
 
 const handleResetPassword = async () => {
+  if (forgotForm.loading) return
   if (!forgotForm.email.trim()) return ElMessage.warning('请输入邮箱')
   if (!forgotForm.emailCode.trim()) return ElMessage.warning('请输入邮箱验证码')
   if (!forgotForm.newPassword) return ElMessage.warning('请输入新密码')
@@ -180,7 +183,7 @@ const handleResetPassword = async () => {
 
   forgotForm.loading = true
   try {
-    const resp = await request.post<ApiResp<any>>('/api/auth/reset-password', {
+    const resp = await publicRequest.post<ApiResp<any>>('/api/auth/reset-password', {
       email: forgotForm.email,
       emailCode: forgotForm.emailCode,
       newPassword: forgotForm.newPassword,
@@ -259,7 +262,7 @@ onBeforeUnmount(() => {
               <p>继续使用现有账户体系和认证流程</p>
             </div>
 
-            <el-form v-if="mode === 'login'" :model="loginForm" class="form" @keyup.enter="handleLogin">
+            <el-form v-if="mode === 'login'" :model="loginForm" class="form" @submit.prevent="handleLogin">
               <el-form-item>
                 <el-input v-model="loginForm.username" placeholder="用户名" autocomplete="username" />
               </el-form-item>
@@ -278,7 +281,7 @@ onBeforeUnmount(() => {
                 <a class="link" @click.prevent="mode = 'forgot'">忘记密码？</a>
               </div>
 
-              <el-button class="primary" :loading="loginForm.loading" @click="handleLogin">登录</el-button>
+              <el-button class="primary" native-type="submit" :loading="loginForm.loading" @click="handleLogin">登录</el-button>
 
               <div class="sub-actions">
                 <el-button class="sub" text plain @click="mode = 'register'">注册</el-button>
@@ -293,7 +296,7 @@ onBeforeUnmount(() => {
               </div> -->
             </el-form>
 
-            <el-form v-else-if="mode === 'register'" :model="registerForm" class="form" @keyup.enter="handleRegister">
+            <el-form v-else-if="mode === 'register'" :model="registerForm" class="form" @submit.prevent="handleRegister">
               <el-form-item>
                 <el-input v-model="registerForm.username" placeholder="用户名(3-32)" autocomplete="username" />
               </el-form-item>
@@ -327,7 +330,7 @@ onBeforeUnmount(() => {
                 />
               </el-form-item>
 
-              <el-button class="primary" :loading="registerForm.loading" @click="handleRegister">注册并登录</el-button>
+              <el-button class="primary" native-type="submit" :loading="registerForm.loading" @click="handleRegister">注册并登录</el-button>
 
               <div class="row row-center">
                 <span class="muted">已有账号？</span>
@@ -335,7 +338,7 @@ onBeforeUnmount(() => {
               </div>
             </el-form>
 
-            <el-form v-else :model="forgotForm" class="form" @keyup.enter="handleResetPassword">
+            <el-form v-else :model="forgotForm" class="form" @submit.prevent="handleResetPassword">
               <el-form-item>
                 <el-input v-model="forgotForm.email" placeholder="邮箱" autocomplete="email" />
               </el-form-item>
@@ -366,7 +369,7 @@ onBeforeUnmount(() => {
                 />
               </el-form-item>
 
-              <el-button class="primary" :loading="forgotForm.loading" @click="handleResetPassword">重置密码</el-button>
+              <el-button class="primary" native-type="submit" :loading="forgotForm.loading" @click="handleResetPassword">重置密码</el-button>
 
               <div class="row row-center">
                 <a class="link" @click.prevent="mode = 'login'">返回登录</a>

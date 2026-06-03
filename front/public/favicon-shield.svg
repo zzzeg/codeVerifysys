@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Verify shield favicon">
+  <defs>
+    <linearGradient id="shield-bg" x1="12" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F6BFF" />
+      <stop offset="1" stop-color="#27D3FF" />
+    </linearGradient>
+    <linearGradient id="shield-mark" x1="23" y1="22" x2="41" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" />
+      <stop offset="1" stop-color="#D9F7FF" />
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="52" height="52" rx="18" fill="#EAF6FF" />
+  <path
+    fill="url(#shield-bg)"
+    d="M32 8c8.9 5.6 15.3 6.5 21 7.1v14.4c0 13.2-8.6 23.9-21 28.5C19.6 53.4 11 42.7 11 29.5V15.1c5.7-.6 12.1-1.5 21-7.1Z"
+  />
+  <path
+    fill="url(#shield-mark)"
+    d="m26.9 39.9-7.1-7.2a2.9 2.9 0 0 1 4.1-4.1l4.6 4.7 11.8-12a2.9 2.9 0 1 1 4.1 4.1L30.9 39.9a2.8 2.8 0 0 1-4 0Z"
+  />
+</svg>

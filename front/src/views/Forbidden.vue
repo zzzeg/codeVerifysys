@@ -1,9 +1,9 @@
 <template>
   <div class="forbidden-page">
     <div class="forbidden-card">
-      <div class="code">404</div>
-      <div class="title">页面不存在</div>
-      <div class="desc">抱歉，未找到你访问的页面。</div>
+      <div class="code">403</div>
+      <div class="title">无权访问</div>
+      <div class="desc">当前账号没有访问该页面的权限。</div>
     </div>
   </div>
 </template>

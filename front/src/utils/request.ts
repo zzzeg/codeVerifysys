@@ -21,12 +21,12 @@ const redirectToLogin = () => {
 }
 
 const instance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || 'http://localhost:3000',
+  baseURL: import.meta.env.VITE_API_BASE || '/',
   timeout: 15000,
 })
 
 export const publicRequest = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || 'http://localhost:3000',
+  baseURL: import.meta.env.VITE_API_BASE || '/',
   timeout: 15000,
 })
 

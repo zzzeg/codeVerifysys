@@ -1,1 +1,3 @@
-export const SECRET = process.env.JWT_SECRET || "verifysys-dev-secret";
+import { getEnvValue } from "./env";
+
+export const SECRET = getEnvValue("JWT_SECRET") || "verifysys-dev-secret";
