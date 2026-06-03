@@ -215,14 +215,14 @@ onBeforeUnmount(() => {
     <div class="wrap">
       <section class="login-shell">
         <div class="showcase">
-        <div class="showcase-badge">License Management Console</div>
-        <h1 class="showcase-title">
-          <span class="title-line">{{ text }}</span>
-          <!-- <span class="title-sub">统一管理注册码、项目和安全策略</span> -->
-        </h1>
-        <p class="showcase-copy">
-          统一账户入口，保留现有认证流程。
-        </p>
+          <div class="showcase-badge">License Management Console</div>
+          <h1 class="showcase-title">
+            <span class="title-line">{{ text }}</span>
+            <!-- <span class="title-sub">统一管理注册码、项目和安全策略</span> -->
+          </h1>
+          <p class="showcase-copy">
+            统一账户入口，保留现有认证流程。
+          </p>
 
           <!-- <div class="showcase-metrics">
             <div class="metric-card">
@@ -247,7 +247,9 @@ onBeforeUnmount(() => {
         <div class="panel">
           <div class="panel-header">
             <div class="brand">
-              <div class="logo"><span class="drop" /></div>
+              <div class="logo">
+                <img src="/favicon-verify-v.svg?v=20260603-edge" alt="VerifySys" />
+              </div>
               <div>
                 <div class="brand-title">VerifySys</div>
                 <div class="brand-subtitle">{{ title }}</div>
@@ -267,13 +269,8 @@ onBeforeUnmount(() => {
                 <el-input v-model="loginForm.username" placeholder="用户名" autocomplete="username" />
               </el-form-item>
               <el-form-item>
-                <el-input
-                  v-model="loginForm.password"
-                  placeholder="密码"
-                  type="password"
-                  show-password
-                  autocomplete="current-password"
-                />
+                <el-input v-model="loginForm.password" placeholder="密码" type="password" show-password
+                  autocomplete="current-password" />
               </el-form-item>
 
               <div class="row">
@@ -281,7 +278,8 @@ onBeforeUnmount(() => {
                 <a class="link" @click.prevent="mode = 'forgot'">忘记密码？</a>
               </div>
 
-              <el-button class="primary" native-type="submit" :loading="loginForm.loading" @click="handleLogin">登录</el-button>
+              <el-button class="primary" native-type="submit" :loading="loginForm.loading"
+                @click="handleLogin">登录</el-button>
 
               <div class="sub-actions">
                 <el-button class="sub" text plain @click="mode = 'register'">注册</el-button>
@@ -296,7 +294,8 @@ onBeforeUnmount(() => {
               </div> -->
             </el-form>
 
-            <el-form v-else-if="mode === 'register'" :model="registerForm" class="form" @submit.prevent="handleRegister">
+            <el-form v-else-if="mode === 'register'" :model="registerForm" class="form"
+              @submit.prevent="handleRegister">
               <el-form-item>
                 <el-input v-model="registerForm.username" placeholder="用户名(3-32)" autocomplete="username" />
               </el-form-item>
@@ -312,25 +311,16 @@ onBeforeUnmount(() => {
                 </div>
               </el-form-item>
               <el-form-item>
-                <el-input
-                  v-model="registerForm.password"
-                  placeholder="密码(6-64)"
-                  type="password"
-                  show-password
-                  autocomplete="new-password"
-                />
+                <el-input v-model="registerForm.password" placeholder="密码(6-64)" type="password" show-password
+                  autocomplete="new-password" />
               </el-form-item>
               <el-form-item>
-                <el-input
-                  v-model="registerForm.confirmPassword"
-                  placeholder="确认密码"
-                  type="password"
-                  show-password
-                  autocomplete="new-password"
-                />
+                <el-input v-model="registerForm.confirmPassword" placeholder="确认密码" type="password" show-password
+                  autocomplete="new-password" />
               </el-form-item>
 
-              <el-button class="primary" native-type="submit" :loading="registerForm.loading" @click="handleRegister">注册并登录</el-button>
+              <el-button class="primary" native-type="submit" :loading="registerForm.loading"
+                @click="handleRegister">注册并登录</el-button>
 
               <div class="row row-center">
                 <span class="muted">已有账号？</span>
@@ -351,25 +341,16 @@ onBeforeUnmount(() => {
                 </div>
               </el-form-item>
               <el-form-item>
-                <el-input
-                  v-model="forgotForm.newPassword"
-                  placeholder="新密码(6-64)"
-                  type="password"
-                  show-password
-                  autocomplete="new-password"
-                />
+                <el-input v-model="forgotForm.newPassword" placeholder="新密码(6-64)" type="password" show-password
+                  autocomplete="new-password" />
               </el-form-item>
               <el-form-item>
-                <el-input
-                  v-model="forgotForm.confirmPassword"
-                  placeholder="确认新密码"
-                  type="password"
-                  show-password
-                  autocomplete="new-password"
-                />
+                <el-input v-model="forgotForm.confirmPassword" placeholder="确认新密码" type="password" show-password
+                  autocomplete="new-password" />
               </el-form-item>
 
-              <el-button class="primary" native-type="submit" :loading="forgotForm.loading" @click="handleResetPassword">重置密码</el-button>
+              <el-button class="primary" native-type="submit" :loading="forgotForm.loading"
+                @click="handleResetPassword">重置密码</el-button>
 
               <div class="row row-center">
                 <a class="link" @click.prevent="mode = 'login'">返回登录</a>
@@ -408,7 +389,7 @@ onBeforeUnmount(() => {
   gap: 24px;
   padding: 24px;
   border: 1px solid #dcdfe6;
-  border-radius: 6px;
+  border-radius: 10px;
   background: #fff;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
 }
@@ -532,8 +513,16 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   display: grid;
   place-items: center;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
+  background: transparent;
+  border: none;
+  overflow: hidden;
+  box-shadow: 0 10px 18px rgba(64, 158, 255, 0.28);
+}
+
+.logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .drop {
@@ -597,7 +586,7 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 4px;
   background: #2563eb;
-  color:#fff;
+  color: #fff;
 }
 
 .row {
@@ -738,7 +727,6 @@ onBeforeUnmount(() => {
 @media (max-width: 720px) {
   .login-shell {
     padding: 20px;
-    border-radius: 6px;
   }
 
   .showcase,
@@ -850,7 +838,7 @@ onBeforeUnmount(() => {
   width: 40px;
   height: 40px;
   border-radius: 6px;
-  background: #ecf5ff;
+  background: transparent;
 }
 
 .drop {
@@ -926,13 +914,20 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
-  .wrap {
-    width: min(100% - 24px, 460px);
+  .login-page {
+    background:
+      linear-gradient(180deg, rgba(236, 245, 255, 0.84), rgba(255, 255, 255, 0.96)),
+      #f8fafc;
   }
 
-  .login-shell {
-    border-radius: 6px;
+  .showcase {
+    display: none;
   }
+
+  .wrap {
+    width: min(100% - 40px, 460px);
+  }
+
 
   .showcase {
     padding: 24px;
@@ -940,6 +935,7 @@ onBeforeUnmount(() => {
 
   .panel {
     padding: 24px;
+    border-top: none;
   }
 
   .title-line {

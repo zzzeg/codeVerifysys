@@ -149,7 +149,9 @@ watch(
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand" @click="navigateTo('/codes/list')">
-          <div class="brand-mark">V</div>
+          <div class="brand-mark">
+            <img src="/favicon-verify-v.svg?v=20260603-edge" alt="VerifySys" />
+          </div>
           <div class="brand-copy">
             <div class="brand-title">VerifySys</div>
             <div class="brand-subtitle">License Workspace</div>
@@ -303,11 +305,16 @@ watch(
   border-radius: 12px;
   display: grid;
   place-items: center;
-  color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #409eff 0%, #2f7eea 100%);
+  padding: 0;
+  background: transparent;
   box-shadow: 0 10px 18px rgba(64, 158, 255, 0.3);
+  overflow: hidden;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .brand-title {
@@ -480,7 +487,7 @@ watch(
     display: block;
     border: 1px solid #e4e7ed;
     border-radius: 0 0 6px 6px;
-    padding: 8px 16px 12px;
+    padding: 6px 12px 10px;
     background: #fff;
     box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
   }
@@ -496,21 +503,26 @@ watch(
 
   .mobile-links {
     display: grid;
-    gap: 8px;
+    gap: 4px;
   }
 
   .mobile-link {
     border: none;
-    border-radius: 10px;
-    padding: 12px 14px;
+    border-radius: 4px;
+    min-height: 38px;
+    padding: 9px 12px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 9px;
     background: transparent;
     color: #606266;
     font-size: 14px;
     font-weight: 500;
     text-align: left;
+
+    &.expanded span {
+      font-weight: 600;
+    }
   }
 
   .mobile-link span {
@@ -528,44 +540,49 @@ watch(
   }
 
   .mobile-link.active {
-    color: #fff;
-    background: linear-gradient(90deg, #409eff 0%, #2f7eea 100%);
-    box-shadow: 0 10px 18px rgba(64, 158, 255, 0.3);
+    color: #2563eb;
+    background: rgba(64, 158, 255, 0.1);
+    box-shadow: 0 1px 2px rgba(64, 158, 255, 0.24);
   }
 
   .mobile-link.expanded:not(.active) {
     color: #2563eb;
-    background: #eff6ff;
+    background: #f5faff;
   }
 
   .mobile-sub-links {
     display: grid;
-    gap: 6px;
-    margin: -2px 0 4px 18px;
-    padding: 4px 0 4px 10px;
-    border-left: 2px solid #e5e7eb;
+    gap: 2px;
+    margin: -1px 0 2px 28px;
+    padding: 2px 0 3px 8px;
+    border-left: 1px solid #e1e7ef;
   }
 
   .mobile-link.secondary {
-    padding: 10px 12px;
-    background: #f8fafc;
-    color: #606266;
+    min-height: 32px;
+    padding: 7px 10px;
+    background: transparent;
+    color: #6b7280;
     font-size: 13px;
     box-shadow: none;
   }
 
+  .mobile-link.secondary:hover {
+    background: #f8fafc;
+  }
+
   .mobile-link.secondary.active {
     color: #2563eb;
-    background: #eef6ff;
+    // background: rgba(64, 158, 255, 0.08);
     box-shadow: none;
-    font-weight: 700;
+    font-weight: 600;
   }
 
   .mobile-link.danger {
     justify-content: center;
-    border: 1px solid rgba(229, 231, 235, 0.8);
-    border-radius: 12px;
-    margin-top: 8px;
+    border-top: 1px solid rgba(229, 231, 235, 0.8);
+    border-radius: 0;
+    margin-top: 6px;
     color: var(--el-color-danger);
   }
 
