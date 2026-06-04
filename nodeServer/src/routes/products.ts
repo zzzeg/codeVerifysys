@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { uuid, type Product, type ProductVariant, type Order } from "../db";
-import { respond, respondError, authMiddleware, requirePermission } from "../middlewares/auth";
-import { execute, query, queryOne } from "../db/mysql";
+import { respond, respondError, authMiddleware, requirePermission, type AuthRequest } from "../middlewares/auth";
+import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
 import { randomCode32 } from "../db";
 import { sendOrderDeliveryEmail } from "../utils/mailer";
+import { createOrderIdCandidate } from "../utils";
+import { ResultSetHeader } from "mysql2";
+import { getPagination } from "../utils/pagination";
 
 const router = Router();
 
@@ -33,12 +36,38 @@ const sanitizeVariants = (raw: any): ProductVariant[] | null => {
   }));
 };
 
+const cardTypePinyinPrefix = (cardType: string) => {
+  const map: Record<string, string> = {
+    trial: "shiyongka",
+    hour: "xiaoshika",
+    day: "tianka",
+    week: "zhouka",
+    month: "yueka",
+    quarter: "jika",
+    half_year: "bannianka",
+    year: "nianka",
+    permanent: "yongjiuka",
+  };
+  return map[cardType] || String(cardType || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+};
+
+const generateCardCode = (cardType: string, addonMode?: boolean) => {
+  if (!addonMode) return randomCode32();
+  const prefix = `${cardTypePinyinPrefix(cardType)}+`;
+  const randomLength = Math.max(8, 32 - prefix.length);
+  return `${prefix}${randomCode32().slice(0, randomLength)}`.slice(0, 32);
+};
+
 const mapProductRow = (r: any): Product => ({
   id: r.id,
   projectId: r.project_id,
+  creatorUserId: r.creator_user_id || undefined,
   name: r.name,
   summary: r.summary || undefined,
+  status: (r.status as Product["status"]) || "published",
+  coverUrl: r.cover_url || undefined,
   allowAnonymous: Boolean(r.allow_anonymous),
+  addonMode: Boolean(r.addon_mode),
   minBuy: Number(r.min_buy || 1),
   maxBuy: Number(r.max_buy || 1),
   variants: parseVariants(r.variants),
@@ -49,15 +78,48 @@ const mapProductRow = (r: any): Product => ({
 const mapOrderRow = (r: any): Order => ({
   id: r.id,
   productId: r.product_id,
+  productName: r.product_name || undefined,
+  creatorUserId: r.creator_user_id || undefined,
   buyer: r.buyer,
+  buyerEmail: r.buyer_email || undefined,
+  mockPayToken: r.mock_pay_token || undefined,
+  variantId: r.variant_id || undefined,
+  variantLabel: r.variant_label || undefined,
+  verifyCode: r.verify_code || undefined,
+  deliveryPayload: Array.isArray(r.delivery_payload)
+    ? r.delivery_payload
+    : typeof r.delivery_payload === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse(r.delivery_payload);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [],
   quantity: Number(r.quantity),
   amount: Number(r.amount),
   status: r.status,
+  settlementStatus: (r.settlement_status as Order["settlementStatus"]) || "unsettled",
+  settleAt: r.settle_at ? Number(r.settle_at) : undefined,
+  paidAt: r.paid_at ? Number(r.paid_at) : undefined,
+  deliveredAt: r.delivered_at ? Number(r.delivered_at) : undefined,
   createdAt: Number(r.created_at),
 });
 
 const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const publicOrderCaptchaStore = new Map<string, { code: string; expireAt: number; productId: string }>();
+const captchaCleanupIntervalMs = 60_000;
+let lastCaptchaCleanupAt = 0;
+
+const cleanupExpiredCaptchas = (now = Date.now()) => {
+  if (now - lastCaptchaCleanupAt < captchaCleanupIntervalMs) return;
+  lastCaptchaCleanupAt = now;
+  for (const [id, captcha] of publicOrderCaptchaStore.entries()) {
+    if (captcha.expireAt < now) publicOrderCaptchaStore.delete(id);
+  }
+};
 
 const svgEscape = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -122,6 +184,8 @@ const createShortLinkCode = () => Math.random().toString(16).slice(2, 10).toLowe
 const sanitizeProductPayload = (body: any) => {
   const name = String(body?.name || "").trim();
   const summary = String(body?.summary || "").trim();
+  const status: Product["status"] = body?.status === "draft" ? "draft" : "published";
+  const coverUrl = "";
   const description = typeof body?.description === "undefined" ? undefined : String(body.description || "").trim();
   const minBuy = Number(body?.minBuy ?? 1);
   const maxBuy = Number(body?.maxBuy ?? 5);
@@ -153,8 +217,11 @@ const sanitizeProductPayload = (body: any) => {
       projectId: String(body.projectId),
       name,
       summary,
+      status,
+      coverUrl,
       description,
       allowAnonymous: body?.allowAnonymous ?? true,
+      addonMode: Boolean(body?.addonMode),
       minBuy,
       maxBuy,
       variants,
@@ -171,20 +238,66 @@ const generateUniqueProductLinkCode = async () => {
   return uuid().replace(/-/g, "").slice(0, 8).toLowerCase();
 };
 
+const generateUniqueOrderId = async (developerCode: string) => {
+  for (let i = 0; i < 20; i += 1) {
+    const orderId = createOrderIdCandidate(developerCode);
+    const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table("orders")} WHERE id = ?`, [orderId]);
+    if (!exists) return orderId;
+  }
+  throw new Error("生成订单号失败");
+};
+
+const isDuplicateEntry = (err: any) => String(err?.code || "").includes("ER_DUP_ENTRY");
+
+const isAdminUser = (req: AuthRequest) =>
+  req.user?.username === "admin" || req.user?.roleIds.includes("role-admin") || req.user?.permissions.includes("*");
+
+const ownerWhere = (req: AuthRequest, alias = "") => {
+  const prefix = alias ? `${alias}.` : "";
+  if (isAdminUser(req)) return { sql: "1 = 1", params: [] as any[] };
+  return { sql: `${prefix}creator_user_id = ?`, params: [req.user?.id] as any[] };
+};
+
+const getOwnedProduct = async (req: AuthRequest, id: string) => {
+  const owner = ownerWhere(req);
+  return queryOne(`SELECT * FROM ${table("products")} WHERE id = ? AND ${owner.sql}`, [id, ...owner.params]);
+};
+
+const insertIssuedCode = async (
+  conn: any,
+  product: Product,
+  variant: ProductVariant,
+  projectName: string,
+  buyerEmail: string,
+  now: number,
+) => {
+  const expireAt = now + cardTypeExpireMs(variant.cardType);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = generateCardCode(variant.cardType, product.addonMode);
+    try {
+      await conn.execute(
+        `INSERT INTO ${table("register_codes")}
+         (id, code, project_id, project_name, card_type, status, is_online, is_bound, sale_type, remark, expire_at, created_at)
+         VALUES (?, ?, ?, ?, ?, 'unused', 0, 0, 'auto_issue', ?, ?, ?)`,
+        [uuid(), code, product.projectId, projectName, variant.cardType, `订单邮箱：${buyerEmail}`, expireAt, now],
+      );
+      return code;
+    } catch (err) {
+      if (isDuplicateEntry(err)) continue;
+      throw err;
+    }
+  }
+  throw new Error("生成卡密失败：多次尝试仍冲突");
+};
+
 const issueCardCodes = async (product: Product, variant: ProductVariant, quantity: number, buyerEmail: string) => {
   const cards: string[] = [];
   const now = Date.now();
-  const expireAt = now + cardTypeExpireMs(variant.cardType);
+  const projectRow = await queryOne<{ name: string }>(`SELECT name FROM ${table("projects")} WHERE id = ?`, [product.projectId]);
+  const projectName = projectRow?.name || product.projectId;
 
   for (let i = 0; i < quantity; i += 1) {
-    const code = randomCode32();
-    await execute(
-      `INSERT INTO ${table("register_codes")}
-       (id, code, project_id, project_name, card_type, status, is_online, is_bound, sale_type, remark, expire_at, created_at)
-       VALUES (?, ?, ?, ?, ?, 'unused', 0, 0, 'auto_issue', ?, ?, ?)`,
-      [uuid(), code, product.projectId, "", variant.cardType, `订单邮箱：${buyerEmail}`, expireAt, now]
-    );
-    cards.push(code);
+    cards.push(await insertIssuedCode({ execute }, product, variant, projectName, buyerEmail, now));
   }
 
   return cards;
@@ -194,12 +307,15 @@ const issueCardCodes = async (product: Product, variant: ProductVariant, quantit
 router.get("/public/:code", async (req, res) => {
   const row = await queryOne(`SELECT * FROM ${table("products")} WHERE link_code = ?`, [req.params.code]);
   if (!row) return respondError(res, "未找到商品", 404);
+  if (row.status === "draft") return respondError(res, "商品尚未发布", 404);
   return respond(res, mapProductRow(row));
 });
 
 router.post("/public/:code/captcha", async (req, res) => {
+  cleanupExpiredCaptchas();
   const row = await queryOne(`SELECT * FROM ${table("products")} WHERE link_code = ?`, [req.params.code]);
   if (!row) return respondError(res, "未找到商品", 404);
+  if (row.status === "draft") return respondError(res, "商品尚未发布", 404);
 
   const code = createCaptchaText();
   const captchaId = uuid();
@@ -216,6 +332,9 @@ router.post("/public/:code/purchase", async (req, res) => {
   const row = await queryOne(`SELECT * FROM ${table("products")} WHERE link_code = ?`, [req.params.code]);
   if (!row) return respondError(res, "未找到商品", 404);
   const product = mapProductRow(row);
+  if (product.status === "draft") return respondError(res, "商品尚未发布", 404);
+  if (!product.creatorUserId) return respondError(res, "商品尚未绑定创建者，暂不可购买", 400);
+  if (!product.allowAnonymous) return respondError(res, "该商品未开启匿名购买", 403);
 
   const { variantId, quantity = 1, buyer = "anonymous", email = "", captchaCode = "", captchaId = "" } = req.body || {};
   const variant = product.variants.find((v) => v.id === variantId) || product.variants[0];
@@ -237,17 +356,25 @@ router.post("/public/:code/purchase", async (req, res) => {
 
   const qty = Math.min(Math.max(Number(quantity) || 1, product.minBuy), product.maxBuy);
   const amount = Number(variant.price) * qty;
-  const orderId = uuid();
+  const creatorRow = await queryOne<{ developer_code: string | null }>(
+    `SELECT developer_code FROM ${table("users")} WHERE id = ?`,
+    [product.creatorUserId],
+  );
+  const developerCode = String(creatorRow?.developer_code || "").trim().toUpperCase();
+  if (!developerCode) return respondError(res, "商品创建者缺少开发者短码，暂不可购买", 400);
+  const orderId = await generateUniqueOrderId(developerCode);
+  const mockPayToken = uuid();
   const now = Date.now();
 
   await execute(
-    `INSERT INTO ${table("orders")} (id, product_id, buyer, buyer_email, variant_id, variant_label, quantity, amount, verify_code, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    [orderId, product.id, buyer, buyerEmail, variant.id, variant.label, qty, amount, captcha.code, now]
+    `INSERT INTO ${table("orders")} (id, product_id, creator_user_id, buyer, buyer_email, mock_pay_token, variant_id, variant_label, quantity, amount, verify_code, status, settlement_status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'unsettled', ?)`,
+    [orderId, product.id, product.creatorUserId, buyer, buyerEmail, mockPayToken, variant.id, variant.label, qty, amount, captcha.code, now]
   );
 
   return respond(res, {
     orderId,
+    mockPayToken,
     amount,
     productName: product.name,
     quantity: qty,
@@ -256,35 +383,97 @@ router.post("/public/:code/purchase", async (req, res) => {
 });
 
 router.post("/public/payment/callback", async (req, res) => {
-  const { orderId, status = "paid" } = req.body || {};
+  const { orderId, mockPayToken = "", status = "paid" } = req.body || {};
   if (!orderId) return respond(res, {});
 
   const orderRow = await queryOne<any>(`SELECT * FROM ${table("orders")} WHERE id = ?`, [orderId]);
   if (!orderRow) return respondError(res, "订单不存在", 404);
+  if (String(orderRow.mock_pay_token || "") !== String(mockPayToken || "")) {
+    return respondError(res, "支付确认凭证无效", 403);
+  }
 
-  if (orderRow.status === "paid" && orderRow.delivery_payload) {
+  if (orderRow.status === "delivered" && orderRow.delivery_payload) {
     return respond(res, { orderId, cards: JSON.parse(orderRow.delivery_payload) });
   }
 
-  await execute(`UPDATE ${table("orders")} SET status = ? WHERE id = ?`, [status, orderId]);
-  if (status !== "paid") return respond(res, { orderId, status });
+  let cards: string[] = [];
+  let productName = "";
+  let buyerEmail = "";
 
-  const productRow = await queryOne(`SELECT * FROM ${table("products")} WHERE id = ?`, [orderRow.product_id]);
-  if (!productRow) return respondError(res, "商品不存在", 404);
-  const product = mapProductRow(productRow);
-  const variant = product.variants.find((item) => item.id === orderRow.variant_id) || product.variants[0];
-  if (!variant) return respondError(res, "规格不存在", 404);
+  try {
+    const result = await withTransaction(async (conn) => {
+      const [lockedRows] = await conn.query(`SELECT * FROM ${table("orders")} WHERE id = ? FOR UPDATE`, [orderId]);
+      const lockedOrder = (lockedRows as any[])[0];
+      if (!lockedOrder) throw new Error("订单不存在");
+      if (String(lockedOrder.mock_pay_token || "") !== String(mockPayToken || "")) throw new Error("支付确认凭证无效");
+      if (lockedOrder.status === "delivered" && lockedOrder.delivery_payload) {
+        return {
+          cards: JSON.parse(lockedOrder.delivery_payload),
+          productName: "",
+          buyerEmail: String(lockedOrder.buyer_email || ""),
+          alreadyDelivered: true,
+        };
+      }
 
-  const cards = await issueCardCodes(product, variant, Number(orderRow.quantity || 1), String(orderRow.buyer_email || ""));
-  await execute(`UPDATE ${table("orders")} SET delivery_payload = ? WHERE id = ?`, [JSON.stringify(cards), orderId]);
+      const now = Date.now();
+      const configRow = await queryOne<{ config: any }>(`SELECT config FROM ${table("system_config")} WHERE id = 1`);
+      const config =
+        typeof configRow?.config === "string"
+          ? JSON.parse(configRow.config)
+          : configRow?.config || {};
+      const settlementDays = Math.max(Number(config.settlementDays ?? 1) || 1, 0);
+      const settleAt = now + settlementDays * 86400000;
+      const updateResult = await conn.execute(
+        `UPDATE ${table("orders")} SET status = ?, paid_at = ?, settle_at = ? WHERE id = ? AND status = 'pending'`,
+        [status, status === "paid" ? now : null, status === "paid" ? settleAt : null, orderId],
+      );
+      const affectedRows = ((updateResult[0] as ResultSetHeader)?.affectedRows || 0);
+      if (affectedRows === 0) throw new Error("订单状态已变更，请刷新后重试");
+      if (status !== "paid") return { cards: [], productName: "", buyerEmail: String(lockedOrder.buyer_email || "") };
 
-  if (orderRow.buyer_email) {
-    await sendOrderDeliveryEmail({
-      to: String(orderRow.buyer_email),
-      orderId,
-      productName: product.name,
-      cards,
+      const [productRows] = await conn.query(`SELECT * FROM ${table("products")} WHERE id = ?`, [lockedOrder.product_id]);
+      const productRow = (productRows as any[])[0];
+      if (!productRow) throw new Error("商品不存在");
+      const product = mapProductRow(productRow);
+      const variant = product.variants.find((item) => item.id === lockedOrder.variant_id) || product.variants[0];
+      if (!variant) throw new Error("规格不存在");
+
+      const [projectRows] = await conn.query(`SELECT name FROM ${table("projects")} WHERE id = ?`, [product.projectId]);
+      const projectName = (projectRows as any[])[0]?.name || product.projectId;
+      const issued: string[] = [];
+      for (let i = 0; i < Number(lockedOrder.quantity || 1); i += 1) {
+        issued.push(await insertIssuedCode(conn, product, variant, projectName, String(lockedOrder.buyer_email || ""), now));
+      }
+
+      await conn.execute(
+        `UPDATE ${table("orders")} SET status = 'delivered', delivery_payload = ?, delivered_at = ? WHERE id = ?`,
+        [JSON.stringify(issued), Date.now(), orderId],
+      );
+      await conn.execute(
+        `INSERT INTO ${table("notifications")} (id, title, content, category, is_read, created_at)
+         VALUES (?, ?, ?, 'order', 0, ?)`,
+        [uuid(), "新订单已发货", `订单 ${orderId} 已自动发货，金额 ${Number(lockedOrder.amount || 0).toFixed(2)} 元。`, now],
+      );
+      return { cards: issued, productName: product.name, buyerEmail: String(lockedOrder.buyer_email || "") };
     });
+    cards = result.cards;
+    productName = result.productName;
+    buyerEmail = result.buyerEmail;
+  } catch (error: any) {
+    return respondError(res, error?.message || "支付确认失败", 400);
+  }
+
+  if (buyerEmail && cards.length && productName) {
+    try {
+      await sendOrderDeliveryEmail({
+        to: buyerEmail,
+        orderId,
+        productName,
+        cards,
+      });
+    } catch (error) {
+      console.error("【订单发货】【发送邮件】订单发货邮件发送失败：", error);
+    }
   }
 
   return respond(res, { orderId, cards });
@@ -295,38 +484,98 @@ router.use(authMiddleware);
 router.use(requirePermission("products", "auto-delivery"));
 
 router.get("/", async (req, res) => {
-  const { keyword = "" } = req.query as Record<string, string>;
+  const authReq = req as AuthRequest;
+  const owner = ownerWhere(authReq);
+  const { keyword = "", projectId = "" } = req.query as Record<string, string>;
+  const { pageSize, offset } = getPagination(req.query as Record<string, any>);
   const kw = (keyword || "").trim();
-  const rows = await query(
-    `SELECT * FROM ${table("products")} ${kw ? "WHERE name LIKE ?" : ""} ORDER BY created_at DESC`,
-    kw ? [`%${kw}%`] : []
+  const where = [owner.sql];
+  const params = [...owner.params];
+  if (projectId.trim()) {
+    where.push("project_id = ?");
+    params.push(projectId.trim());
+  }
+  if (kw) {
+    where.push("name LIKE ?");
+    params.push(`%${kw}%`);
+  }
+  const totalRow = await queryOne<{ c: number }>(
+    `SELECT COUNT(*) as c FROM ${table("products")} WHERE ${where.join(" AND ")}`,
+    params,
   );
-  return respond(res, rows.map(mapProductRow));
+  const pagedRows = await query(
+    `SELECT * FROM ${table("products")} WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    [...params, pageSize, offset],
+  );
+  return respond(res, { list: pagedRows.map(mapProductRow), total: Number(totalRow?.c || 0) });
 });
 
-router.get("/orders", async (_req, res) => {
-  const rows = await query(`SELECT * FROM ${table("orders")} ORDER BY created_at DESC`);
-  return respond(res, rows.map(mapOrderRow));
+router.get("/orders", async (req: AuthRequest, res) => {
+  const userId = req.user?.id;
+  if (!userId) return respondError(res, "未授权", 401);
+  const { productName = "", startTime = "", endTime = "" } = req.query as Record<string, string>;
+  const { pageSize, offset } = getPagination(req.query as Record<string, any>);
+  const where = [`o.creator_user_id = ?`];
+  const params: any[] = [userId];
+
+  if (productName.trim()) {
+    where.push("p.name LIKE ?");
+    params.push(`%${productName.trim()}%`);
+  }
+  if (startTime) {
+    where.push("o.created_at >= ?");
+    params.push(Number(startTime));
+  }
+  if (endTime) {
+    where.push("o.created_at <= ?");
+    params.push(Number(endTime));
+  }
+
+  const totalRow = await queryOne<{ c: number }>(
+    `SELECT COUNT(*) as c
+     FROM ${table("orders")} o
+     LEFT JOIN ${table("products")} p ON p.id = o.product_id
+     WHERE ${where.join(" AND ")}`,
+    params,
+  );
+  const rows = await query(
+    `SELECT o.*, p.name as product_name
+     FROM ${table("orders")} o
+     LEFT JOIN ${table("products")} p ON p.id = o.product_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY o.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, pageSize, offset],
+  );
+  return respond(res, { list: rows.map(mapOrderRow), total: Number(totalRow?.c || 0) });
 });
 
-router.get("/orders/:orderId", async (req, res) => {
-  const row = await queryOne(`SELECT * FROM ${table("orders")} WHERE id = ?`, [req.params.orderId]);
+router.get("/orders/:orderId", async (req: AuthRequest, res) => {
+  const userId = req.user?.id;
+  if (!userId) return respondError(res, "未授权", 401);
+  const row = await queryOne(
+    `SELECT o.*, p.name as product_name
+     FROM ${table("orders")} o
+     LEFT JOIN ${table("products")} p ON p.id = o.product_id
+     WHERE o.id = ? AND o.creator_user_id = ?`,
+    [req.params.orderId, userId],
+  );
   if (!row) return respondError(res, "未找到订单", 404);
   return respond(res, mapOrderRow(row));
 });
 
 router.get("/:id", async (req, res) => {
-  const row = await queryOne(`SELECT * FROM ${table("products")} WHERE id = ?`, [req.params.id]);
+  const row = await getOwnedProduct(req as AuthRequest, req.params.id);
   if (!row) return respondError(res, "未找到商品", 404);
   return respond(res, mapProductRow(row));
 });
 
-router.post("/", async (req, res) => {
+router.post("/", async (req: AuthRequest, res) => {
   const id = uuid();
   const now = Date.now();
   const sanitized = sanitizeProductPayload(req.body);
   if (!sanitized.ok) return respondError(res, sanitized.message, 400);
-  const { projectId, name, summary, description, allowAnonymous, minBuy, maxBuy, variants } = sanitized.payload;
+  const { projectId, name, summary, status, description, allowAnonymous, addonMode, minBuy, maxBuy, variants } = sanitized.payload;
   const project = await queryOne<{ id: string }>(`SELECT id FROM ${table("projects")} WHERE id = ?`, [projectId]);
   if (!project) return respondError(res, "项目不存在", 400);
   const normalizedVariants: ProductVariant[] = variants.map((v) => ({ ...v, id: uuid() }));
@@ -334,9 +583,13 @@ router.post("/", async (req, res) => {
   const product: Product = {
     id,
     projectId,
+    creatorUserId: req.user?.id,
     name,
     summary,
+    status,
+    coverUrl: "",
     allowAnonymous,
+    addonMode,
     minBuy,
     maxBuy,
     variants: normalizedVariants,
@@ -345,15 +598,19 @@ router.post("/", async (req, res) => {
   };
 
   await execute(
-    `INSERT INTO ${table("products")}
-     (id, project_id, name, summary, allow_anonymous, min_buy, max_buy, variants, description, link_code, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     `INSERT INTO ${table("products")}
+     (id, project_id, creator_user_id, name, summary, status, cover_url, allow_anonymous, addon_mode, min_buy, max_buy, variants, description, link_code, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       product.id,
       product.projectId,
+      product.creatorUserId || null,
       product.name,
       product.summary || null,
+      product.status || "published",
+      product.coverUrl || null,
       product.allowAnonymous ? 1 : 0,
+      product.addonMode ? 1 : 0,
       product.minBuy,
       product.maxBuy,
       JSON.stringify(product.variants || []),
@@ -362,12 +619,16 @@ router.post("/", async (req, res) => {
       now,
     ]
   );
+  await execute(
+    `INSERT INTO ${table("logs")} (id, log_type, action, user, status, message, created_at) VALUES (?, 'operation', 'create_product', ?, 'success', ?, ?)`,
+    [uuid(), req.user?.username || "", `创建商品：${product.name}`, now],
+  );
 
   return respond(res, { id: product.id });
 });
 
-router.put("/:id", async (req, res) => {
-  const existing = await queryOne<{ id: string }>(`SELECT id FROM ${table("products")} WHERE id = ?`, [req.params.id]);
+router.put("/:id", async (req: AuthRequest, res) => {
+  const existing = await getOwnedProduct(req, req.params.id);
   if (!existing) return respondError(res, "未找到商品", 404);
 
   const sanitized = sanitizeProductPayload({ ...req.body, projectId: req.body?.projectId ?? "__optional__" });
@@ -406,7 +667,10 @@ router.put("/:id", async (req, res) => {
      SET project_id = COALESCE(?, project_id),
          name = COALESCE(?, name),
          summary = COALESCE(?, summary),
+         status = COALESCE(?, status),
+         cover_url = cover_url,
          allow_anonymous = COALESCE(?, allow_anonymous),
+         addon_mode = COALESCE(?, addon_mode),
          min_buy = COALESCE(?, min_buy),
          max_buy = COALESCE(?, max_buy),
          variants = COALESCE(?, variants),
@@ -416,7 +680,9 @@ router.put("/:id", async (req, res) => {
       typeof projectId === "undefined" ? null : projectId,
       typeof req.body?.name === "undefined" ? null : String(req.body.name || "").trim(),
       typeof req.body?.summary === "undefined" ? null : String(req.body.summary || "").trim(),
+      typeof req.body?.status === "undefined" ? null : req.body.status === "draft" ? "draft" : "published",
       typeof req.body?.allowAnonymous === "undefined" ? null : req.body.allowAnonymous ? 1 : 0,
+      typeof req.body?.addonMode === "undefined" ? null : req.body.addonMode ? 1 : 0,
       typeof req.body?.minBuy === "undefined" ? null : Number(req.body.minBuy),
       typeof req.body?.maxBuy === "undefined" ? null : Number(req.body.maxBuy),
       variants,
@@ -424,17 +690,31 @@ router.put("/:id", async (req, res) => {
       req.params.id,
     ]
   );
+  await execute(
+    `INSERT INTO ${table("logs")} (id, log_type, action, user, status, message, created_at) VALUES (?, 'operation', 'update_product', ?, 'success', ?, ?)`,
+    [uuid(), req.user?.username || "", `更新商品：${req.params.id}`, Date.now()],
+  );
   return respond(res, {});
 });
 
-router.delete("/:id", async (req, res) => {
-  await execute(`DELETE FROM ${table("products")} WHERE id = ?`, [req.params.id]);
+router.delete("/:id", async (req: AuthRequest, res) => {
+  const owner = ownerWhere(req);
+  await execute(`DELETE FROM ${table("products")} WHERE id = ? AND ${owner.sql}`, [req.params.id, ...owner.params]);
+  await execute(
+    `INSERT INTO ${table("logs")} (id, log_type, action, user, status, message, created_at) VALUES (?, 'operation', 'delete_product', ?, 'success', ?, ?)`,
+    [uuid(), req.user?.username || "", `删除商品：${req.params.id}`, Date.now()],
+  );
   return respond(res, {});
 });
 
-router.get("/:id/link", async (req, res) => {
-  const row = await queryOne<{ link_code: string }>(`SELECT link_code FROM ${table("products")} WHERE id = ?`, [req.params.id]);
+router.get("/:id/link", async (req: AuthRequest, res) => {
+  const owner = ownerWhere(req);
+  const row = await queryOne<{ link_code: string; status: string }>(`SELECT link_code, status FROM ${table("products")} WHERE id = ? AND ${owner.sql}`, [
+    req.params.id,
+    ...owner.params,
+  ]);
   if (!row) return respondError(res, "未找到商品", 404);
+  if (row.status === "draft") return respondError(res, "草稿商品没有公开链接", 400);
   return respond(res, { link: `/api/products/public/${row.link_code}` });
 });
 

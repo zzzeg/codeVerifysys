@@ -28,28 +28,29 @@ const roles = ref<RoleItem[]>([])
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
+const total = ref(0)
 const filterDrawerOpen = ref(false)
 const tableHeight = 'var(--vs-table-max-height)'
 
-const pagedList = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
-})
 const roleNameMap = computed(() => Object.fromEntries(roles.value.map((role) => [role.id, role.name])))
 const getRoleName = (roleId: string) => roleNameMap.value[roleId] || roleId
 
 const fetchRoles = async () => {
-  const resp = await request.get<ApiResp<RoleItem[]>>('/api/roles')
-  roles.value = resp?.data?.data ?? []
+  const resp = await request.get<ApiResp<{ list: RoleItem[]; total: number }>>('/api/roles', { params: { page: 1, pageSize: 200 } })
+  roles.value = resp?.data?.data?.list ?? []
 }
 
 const fetchUsers = async () => {
   loading.value = true
   try {
-    const resp = await request.get<ApiResp<{ list: UserItem[] }>>('/api/users', { params: query })
+    const resp = await request.get<ApiResp<{ list: UserItem[]; total: number }>>('/api/users', { params: { ...query, page: page.value, pageSize: pageSize.value } })
     list.value = resp?.data?.data?.list ?? []
-    const maxPage = Math.max(1, Math.ceil(list.value.length / pageSize.value))
-    if (page.value > maxPage) page.value = maxPage
+    total.value = Number(resp?.data?.data?.total || 0)
+    const maxPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+    if (page.value > maxPage) {
+      page.value = maxPage
+      await fetchUsers()
+    }
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.message || '获取用户失败')
   } finally {
@@ -92,11 +93,13 @@ const resetPassword = async (row: UserItem) => {
 
 const handlePageChange = (value: number) => {
   page.value = value
+  fetchUsers()
 }
 
 const handleSizeChange = (value: number) => {
   pageSize.value = value
   page.value = 1
+  fetchUsers()
 }
 
 const openMobileFilter = () => {
@@ -142,7 +145,7 @@ onBeforeUnmount(() => {
       </div>
     </el-drawer>
 
-    <el-table :data="pagedList" :max-height="tableHeight" v-loading="loading" style="width: 100%">
+    <el-table :data="list" :max-height="tableHeight" v-loading="loading" style="width: 100%">
       <el-table-column prop="username" label="用户名" />
       <el-table-column prop="email" label="邮箱" />
       <el-table-column prop="phone" label="电话" />
@@ -175,12 +178,12 @@ onBeforeUnmount(() => {
       </el-table-column>
     </el-table>
 
-    <div class="pager">
+    <div v-if="total > pageSize" class="pager">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        :total="list.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         @current-change="handlePageChange"
         @size-change="handleSizeChange"

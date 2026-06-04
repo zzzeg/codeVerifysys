@@ -3,6 +3,7 @@ import { uuid, type SecurityPolicy } from "../db";
 import { respond, respondError, authMiddleware, requirePermission } from "../middlewares/auth";
 import { execute, query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
+import { getPagination } from "../utils/pagination";
 
 const router = Router();
 router.use(authMiddleware);
@@ -11,10 +12,7 @@ router.use(requirePermission("security-policies"));
 router.get("/", async (req, res) => {
   const raw = req.query as Record<string, string>;
   const { projectId = "", status = "", mode = "" } = raw;
-  const hasPaging = typeof raw.page !== "undefined" || typeof raw.pageSize !== "undefined";
-  const pageNum = Math.max(parseInt(raw.page || "1", 10) || 1, 1);
-  const pageSize = Math.min(Math.max(parseInt(raw.pageSize || "10", 10) || 10, 1), 200);
-  const offset = (pageNum - 1) * pageSize;
+  const { pageSize, offset } = getPagination(raw);
 
   const where: string[] = [];
   const params: any[] = [];
@@ -35,9 +33,7 @@ router.get("/", async (req, res) => {
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  const totalRow = hasPaging
-    ? await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("security_policies")} sp ${whereSql}`, params)
-    : null;
+  const totalRow = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("security_policies")} sp ${whereSql}`, params);
 
   const rows = await query(
     `SELECT sp.*, p.name as project_name
@@ -45,8 +41,8 @@ router.get("/", async (req, res) => {
      LEFT JOIN ${table("projects")} p ON p.id = sp.project_id
      ${whereSql}
      ORDER BY sp.created_at DESC
-     ${hasPaging ? "LIMIT ? OFFSET ?" : ""}`,
-    hasPaging ? [...params, pageSize, offset] : params
+     LIMIT ? OFFSET ?`,
+    [...params, pageSize, offset]
   );
 
   const list: SecurityPolicy[] = rows.map((r: any) => {
@@ -77,8 +73,7 @@ router.get("/", async (req, res) => {
     };
   });
 
-  if (hasPaging) return respond(res, { total: totalRow?.c || 0, list });
-  return respond(res, list);
+  return respond(res, { total: Number(totalRow?.c || 0), list });
 });
 
 router.get("/project-ids", async (_req, res) => {

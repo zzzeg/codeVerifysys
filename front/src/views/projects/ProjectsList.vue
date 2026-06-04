@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
@@ -16,6 +17,7 @@ const list = ref<ProjectItem[]>([])
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
+const total = ref(0)
 const filterDrawerOpen = ref(false)
 const tableHeight = 'var(--vs-table-max-height)'
 const router = useRouter()
@@ -29,18 +31,18 @@ const normalizeList = (payload: unknown): ProjectItem[] => {
   return []
 }
 
-const pagedList = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
-})
-
 const fetchList = async () => {
   loading.value = true
   try {
-    const resp = await request.get('/api/projects', { params: { keyword: filters.keyword } })
-    list.value = normalizeList(resp?.data?.data)
-    const maxPage = Math.max(1, Math.ceil(list.value.length / pageSize.value))
-    if (page.value > maxPage) page.value = maxPage
+    const resp = await request.get('/api/projects', { params: { keyword: filters.keyword, notice: filters.notice, page: page.value, pageSize: pageSize.value } })
+    const data = resp?.data?.data
+    list.value = normalizeList(data)
+    total.value = Number((data as { total?: number })?.total || list.value.length)
+    const maxPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+    if (page.value > maxPage) {
+      page.value = maxPage
+      await fetchList()
+    }
   } finally {
     loading.value = false
   }
@@ -62,11 +64,13 @@ const resetSearch = async () => {
 
 const handlePageChange = (nextPage: number) => {
   page.value = nextPage
+  fetchList()
 }
 
 const handleSizeChange = (nextSize: number) => {
   pageSize.value = nextSize
   page.value = 1
+  fetchList()
 }
 
 const goToProjectCodes = (row: ProjectItem) => {
@@ -81,6 +85,24 @@ const goToProjectCodes = (row: ProjectItem) => {
   router.push({
     path: '/codes/list',
   })
+}
+
+const goToProjectCustomData = (row: ProjectItem) => {
+  router.push({
+    path: '/custom-data/list',
+    query: { projectId: row.id },
+  })
+}
+
+const editProject = (row: ProjectItem) => {
+  router.push(`/projects/edit/${row.id}`)
+}
+
+const removeProject = async (row: ProjectItem) => {
+  await ElMessageBox.confirm(`确定删除项目“${row.name}”吗？`, '提示', { type: 'warning' })
+  await request.delete(`/api/projects/${row.id}`)
+  ElMessage.success('删除成功')
+  await fetchList()
 }
 
 const openMobileFilter = () => {
@@ -128,31 +150,26 @@ onBeforeUnmount(() => {
       </div>
     </el-drawer>
 
-    <el-table :data="pagedList" :max-height="tableHeight" v-loading="loading">
+    <el-table :data="list" :max-height="tableHeight" v-loading="loading">
       <el-table-column prop="name" label="项目名称" />
       <el-table-column prop="description" label="公告" />
       <el-table-column prop="remark" label="备注" />
-      <el-table-column label="操作" width="160">
-        <template #default>
-          <el-link type="primary">编辑</el-link>
-          <el-link type="danger" style="margin-left: 8px">删除</el-link>
-        </template>
-      </el-table-column>
-      <el-table-column label="管理" width="200">
+      <el-table-column label="操作" width="260">
         <template #default="{ row }">
-          <el-link type="primary" @click="goToProjectCodes(row)">注册码</el-link>
-          <el-link type="primary" style="margin-left: 8px">文件</el-link>
-          <el-link type="primary" style="margin-left: 8px">数据</el-link>
+          <el-link type="primary" @click="editProject(row)">编辑</el-link>
+          <el-link type="danger" style="margin-left: 8px" @click="removeProject(row)">删除</el-link>
+          <el-link type="primary" style="margin-left: 8px" @click="goToProjectCodes(row)">注册码</el-link>
+          <el-link type="primary" style="margin-left: 8px" @click="goToProjectCustomData(row)">自定义数据</el-link>
         </template>
       </el-table-column>
     </el-table>
 
-    <div class="pager">
+    <div v-if="total > pageSize" class="pager">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        :total="list.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         @current-change="handlePageChange"
         @size-change="handleSizeChange"

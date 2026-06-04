@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import { publicRequest } from '../utils/request'
 import type { ApiResp } from '../utils/request'
 import { useAuthStore } from '../store/auth'
@@ -22,6 +23,8 @@ type Mode = 'login' | 'register' | 'forgot'
 const router = useRouter()
 const auth = useAuthStore()
 const mode = ref<Mode>('login')
+const registerFormRef = ref<FormInstance>()
+const forgotFormRef = ref<FormInstance>()
 const text = ref('')
 const originalText = 'VerifySys'
 const speed = 100
@@ -51,7 +54,42 @@ const forgotForm = reactive({
   loading: false,
 })
 
-const title = computed(() => (mode.value === 'login' ? '登录' : mode.value === 'register' ? '注册' : '找回密码'))
+const validateRegisterPasswordConfirm = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (value !== registerForm.password) {
+    callback(new Error('两次密码不一致'))
+    return
+  }
+  callback()
+}
+
+const validateForgotPasswordConfirm = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (value !== forgotForm.newPassword) {
+    callback(new Error('两次密码不一致'))
+    return
+  }
+  callback()
+}
+
+const registerRules: FormRules<typeof registerForm> = {
+  username: [{ required: true, whitespace: true, message: '请输入用户名', trigger: 'blur' }],
+  email: [
+    { required: true, whitespace: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+  emailCode: [{ required: true, whitespace: true, message: '请输入邮箱验证码', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  confirmPassword: [{ validator: validateRegisterPasswordConfirm, trigger: 'blur' }],
+}
+
+const forgotRules: FormRules<typeof forgotForm> = {
+  email: [
+    { required: true, whitespace: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+  emailCode: [{ required: true, whitespace: true, message: '请输入邮箱验证码', trigger: 'blur' }],
+  newPassword: [{ required: true, message: '请输入新密码', trigger: 'blur' }],
+  confirmPassword: [{ validator: validateForgotPasswordConfirm, trigger: 'blur' }],
+}
 
 const typeWriter = () => {
   if (index < originalText.length) {
@@ -95,6 +133,10 @@ const handleLogin = async () => {
   }
 }
 
+const handleForgotPasswordDisabled = () => {
+  ElMessage.info('找回密码功能暂不可用，请联系管理员处理')
+}
+
 const countdown = reactive({
   register: 0,
   reset: 0,
@@ -116,8 +158,10 @@ const startCountdown = (key: 'register' | 'reset', seconds: number) => {
 }
 
 const sendEmailCode = async (purpose: 'register' | 'reset') => {
+  const targetFormRef = purpose === 'register' ? registerFormRef : forgotFormRef
+  const valid = await targetFormRef.value?.validateField('email').catch(() => false)
+  if (!valid) return
   const email = purpose === 'register' ? registerForm.email : forgotForm.email
-  if (!email.trim()) return ElMessage.warning('请输入邮箱')
 
   try {
     const resp = await publicRequest.post<ApiResp<{ expireAt: number; debugCode?: string }>>('/api/auth/email-code', {
@@ -143,11 +187,8 @@ const sendEmailCode = async (purpose: 'register' | 'reset') => {
 
 const handleRegister = async () => {
   if (registerForm.loading) return
-  if (!registerForm.username.trim()) return ElMessage.warning('请输入用户名')
-  if (!registerForm.email.trim()) return ElMessage.warning('请输入邮箱')
-  if (!registerForm.emailCode.trim()) return ElMessage.warning('请输入邮箱验证码')
-  if (!registerForm.password) return ElMessage.warning('请输入密码')
-  if (registerForm.password !== registerForm.confirmPassword) return ElMessage.warning('两次密码不一致')
+  const valid = await registerFormRef.value?.validate().catch(() => false)
+  if (!valid) return
 
   registerForm.loading = true
   try {
@@ -176,10 +217,8 @@ const handleRegister = async () => {
 
 const handleResetPassword = async () => {
   if (forgotForm.loading) return
-  if (!forgotForm.email.trim()) return ElMessage.warning('请输入邮箱')
-  if (!forgotForm.emailCode.trim()) return ElMessage.warning('请输入邮箱验证码')
-  if (!forgotForm.newPassword) return ElMessage.warning('请输入新密码')
-  if (forgotForm.newPassword !== forgotForm.confirmPassword) return ElMessage.warning('两次密码不一致')
+  const valid = await forgotFormRef.value?.validate().catch(() => false)
+  if (!valid) return
 
   forgotForm.loading = true
   try {
@@ -218,26 +257,10 @@ onBeforeUnmount(() => {
           <div class="showcase-badge">License Management Console</div>
           <h1 class="showcase-title">
             <span class="title-line">{{ text }}</span>
-            <!-- <span class="title-sub">统一管理注册码、项目和安全策略</span> -->
           </h1>
           <p class="showcase-copy">
             统一账户入口，保留现有认证流程。
           </p>
-
-          <!-- <div class="showcase-metrics">
-            <div class="metric-card">
-              <strong>01</strong>
-              <span>Unified Access</span>
-            </div>
-            <div class="metric-card">
-              <strong>02</strong>
-              <span>Project Driven</span>
-            </div>
-            <div class="metric-card">
-              <strong>03</strong>
-              <span>Risk Visibility</span>
-            </div>
-          </div> -->
 
           <div class="illustration-panel">
             <img class="illustration" :src="illustration" alt="illustration" />
@@ -248,11 +271,10 @@ onBeforeUnmount(() => {
           <div class="panel-header">
             <div class="brand">
               <div class="logo">
-                <img src="/favicon-verify-v.svg?v=20260603-edge" alt="VerifySys" />
+                <img src="/favicon-verify-v.svg" alt="VerifySys" />
               </div>
               <div>
-                <div class="brand-title">VerifySys</div>
-                <div class="brand-subtitle">{{ title }}</div>
+                <div class="brand-title">瑞云网络验证</div>
               </div>
             </div>
             <div class="panel-tip">Secure / Clear / Consistent</div>
@@ -260,7 +282,6 @@ onBeforeUnmount(() => {
 
           <div class="card">
             <div class="card-heading">
-              <h2>{{ title }}</h2>
               <p>继续使用现有账户体系和认证流程</p>
             </div>
 
@@ -275,7 +296,7 @@ onBeforeUnmount(() => {
 
               <div class="row">
                 <el-checkbox v-model="loginForm.remember" label="7天内免登录" />
-                <a class="link" @click.prevent="mode = 'forgot'">忘记密码？</a>
+                <a class="link link-disabled" @click.prevent="handleForgotPasswordDisabled">忘记密码？</a>
               </div>
 
               <el-button class="primary" native-type="submit" :loading="loginForm.loading"
@@ -284,25 +305,17 @@ onBeforeUnmount(() => {
               <div class="sub-actions">
                 <el-button class="sub" text plain @click="mode = 'register'">注册</el-button>
               </div>
-
-              <!-- <div class="divider"><span>第三方登录</span></div>
-              <div class="oauth-icons">
-                <span class="dot" />
-                <span class="dot" />
-                <span class="dot" />
-                <span class="dot" />
-              </div> -->
             </el-form>
 
-            <el-form v-else-if="mode === 'register'" :model="registerForm" class="form"
+            <el-form v-else-if="mode === 'register'" ref="registerFormRef" :model="registerForm" :rules="registerRules" class="form"
               @submit.prevent="handleRegister">
-              <el-form-item>
+              <el-form-item prop="username">
                 <el-input v-model="registerForm.username" placeholder="用户名(3-32)" autocomplete="username" />
               </el-form-item>
-              <el-form-item>
+              <el-form-item prop="email">
                 <el-input v-model="registerForm.email" placeholder="邮箱" autocomplete="email" />
               </el-form-item>
-              <el-form-item>
+              <el-form-item prop="emailCode">
                 <div class="code-row">
                   <el-input v-model="registerForm.emailCode" placeholder="邮箱验证码" />
                   <el-button class="code-btn" :disabled="countdown.register > 0" @click="sendEmailCode('register')">
@@ -310,11 +323,11 @@ onBeforeUnmount(() => {
                   </el-button>
                 </div>
               </el-form-item>
-              <el-form-item>
+              <el-form-item prop="password">
                 <el-input v-model="registerForm.password" placeholder="密码(6-64)" type="password" show-password
                   autocomplete="new-password" />
               </el-form-item>
-              <el-form-item>
+              <el-form-item prop="confirmPassword">
                 <el-input v-model="registerForm.confirmPassword" placeholder="确认密码" type="password" show-password
                   autocomplete="new-password" />
               </el-form-item>
@@ -328,11 +341,11 @@ onBeforeUnmount(() => {
               </div>
             </el-form>
 
-            <el-form v-else :model="forgotForm" class="form" @submit.prevent="handleResetPassword">
-              <el-form-item>
+            <el-form v-else ref="forgotFormRef" :model="forgotForm" :rules="forgotRules" class="form" @submit.prevent="handleResetPassword">
+              <el-form-item prop="email">
                 <el-input v-model="forgotForm.email" placeholder="邮箱" autocomplete="email" />
               </el-form-item>
-              <el-form-item>
+              <el-form-item prop="emailCode">
                 <div class="code-row">
                   <el-input v-model="forgotForm.emailCode" placeholder="邮箱验证码" />
                   <el-button class="code-btn" :disabled="countdown.reset > 0" @click="sendEmailCode('reset')">
@@ -340,11 +353,11 @@ onBeforeUnmount(() => {
                   </el-button>
                 </div>
               </el-form-item>
-              <el-form-item>
+              <el-form-item prop="newPassword">
                 <el-input v-model="forgotForm.newPassword" placeholder="新密码(6-64)" type="password" show-password
                   autocomplete="new-password" />
               </el-form-item>
-              <el-form-item>
+              <el-form-item prop="confirmPassword">
                 <el-input v-model="forgotForm.confirmPassword" placeholder="确认新密码" type="password" show-password
                   autocomplete="new-password" />
               </el-form-item>
@@ -535,16 +548,8 @@ onBeforeUnmount(() => {
 }
 
 .brand-title {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: 25px;
   color: #172033;
-}
-
-.brand-subtitle {
-  margin-top: 4px;
-  color: #7a8aa2;
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .panel-tip {
@@ -614,6 +619,12 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.link-disabled {
+  color: #9aa8bd;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
 .sub-actions {
   display: flex;
   justify-content: center;
@@ -624,37 +635,6 @@ onBeforeUnmount(() => {
   width: 140px;
   height: 38px;
   border-radius: 4px;
-}
-
-.divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 18px 0 12px;
-  color: #9aa8bd;
-  font-size: 12px;
-}
-
-.divider::before,
-.divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(148, 163, 184, 0.24);
-}
-
-.oauth-icons {
-  display: flex;
-  justify-content: center;
-  gap: 14px;
-}
-
-.dot {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(247, 250, 255, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.18);
 }
 
 .code-row {
@@ -679,22 +659,6 @@ onBeforeUnmount(() => {
   background: #fff;
   padding: 0 12px;
 }
-
-/* :deep(.el-input__inner) {
-  height: 46px;
-  line-height: 46px;
-  color: #172033;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-:deep(.el-textarea__inner) {
-  padding: 12px 16px;
-  line-height: 1.65;
-  color: #172033;
-  font-size: 14px;
-  font-weight: 600;
-} */
 
 :deep(.el-input__inner),
 :deep(.el-textarea__inner) {
@@ -754,7 +718,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* pure-admin-max style overrides */
 .login-page {
   background: #f0f2f5;
 }

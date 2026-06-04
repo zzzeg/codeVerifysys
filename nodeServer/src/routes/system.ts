@@ -6,7 +6,6 @@ import type { SystemConfig } from "../db";
 
 const router = Router();
 router.use(authMiddleware);
-router.use(requireAdmin());
 
 const parseConfig = (val: any): SystemConfig => {
   if (!val) return { siteName: "VerifySys 控制台", logo: "/uploads/logo.png", uploadLimitMb: 5, params: { locale: "zh-CN" } };
@@ -21,28 +20,6 @@ const parseConfig = (val: any): SystemConfig => {
   }
   return { siteName: "VerifySys 控制台", logo: "/uploads/logo.png", uploadLimitMb: 5, params: { locale: "zh-CN" } };
 };
-
-router.get("/config", async (_req, res) => {
-  const row = await queryOne<{ config: any }>(`SELECT config FROM ${table("system_config")} WHERE id = 1`);
-  if (!row) {
-    const now = Date.now();
-    const config: SystemConfig = { siteName: "VerifySys 控制台", logo: "/uploads/logo.png", uploadLimitMb: 5, params: { locale: "zh-CN" } };
-    await execute(`INSERT INTO ${table("system_config")} (id, config, updated_at) VALUES (1, ?, ?)`, [JSON.stringify(config), now]);
-    return respond(res, config);
-  }
-  return respond(res, parseConfig(row.config));
-});
-
-router.put("/config", async (req, res) => {
-  const now = Date.now();
-  const config = req.body || {};
-  await execute(
-    `INSERT INTO ${table("system_config")} (id, config, updated_at) VALUES (1, ?, ?)
-     ON DUPLICATE KEY UPDATE config = VALUES(config), updated_at = VALUES(updated_at)`,
-    [JSON.stringify(config), now]
-  );
-  return respond(res, config);
-});
 
 router.get("/dict/:type", (req, res) => {
   const { type } = req.params;
@@ -64,6 +41,30 @@ router.get("/dict/:type", (req, res) => {
     ],
   };
   return respond(res, dict[type] || []);
+});
+
+router.use(requireAdmin());
+
+router.get("/config", async (_req, res) => {
+  const row = await queryOne<{ config: any }>(`SELECT config FROM ${table("system_config")} WHERE id = 1`);
+  if (!row) {
+    const now = Date.now();
+    const config: SystemConfig = { siteName: "VerifySys 控制台", logo: "/uploads/logo.png", uploadLimitMb: 5, params: { locale: "zh-CN" } };
+    await execute(`INSERT INTO ${table("system_config")} (id, config, updated_at) VALUES (1, ?, ?)`, [JSON.stringify(config), now]);
+    return respond(res, config);
+  }
+  return respond(res, parseConfig(row.config));
+});
+
+router.put("/config", async (req, res) => {
+  const now = Date.now();
+  const config = req.body || {};
+  await execute(
+    `INSERT INTO ${table("system_config")} (id, config, updated_at) VALUES (1, ?, ?)
+     ON DUPLICATE KEY UPDATE config = VALUES(config), updated_at = VALUES(updated_at)`,
+    [JSON.stringify(config), now]
+  );
+  return respond(res, config);
 });
 
 export default router;

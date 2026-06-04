@@ -26,10 +26,7 @@ const currentSubTitle = computed(() => {
 })
 const hasMobileFilter = computed(() => route.path === '/custom-data/list')
 
-const isActive = (path: string) => {
-  if (path === '/custom-data/create') return route.path === path || route.path.startsWith('/custom-data/edit/')
-  return route.path === path
-}
+const isActive = (path: string) => route.path === path
 
 const navigateTo = (path: string) => {
   if (route.path !== path) router.push(path)

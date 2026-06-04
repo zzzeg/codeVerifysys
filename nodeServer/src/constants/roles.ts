@@ -7,7 +7,6 @@ export const DEVELOPER_PERMISSIONS = [
   "projects",
   "security-policies",
   "custom-data",
-  "products",
   "auto-delivery",
   "profile",
 ];
@@ -36,7 +35,6 @@ export const ASSIGNABLE_PERMISSION_VALUES = [
   "projects",
   "security-policies",
   "custom-data",
-  "products",
   "auto-delivery",
   "profile",
 ];

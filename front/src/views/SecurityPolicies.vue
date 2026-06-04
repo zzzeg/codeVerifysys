@@ -23,10 +23,7 @@ const currentSubTitle = computed(() => {
 })
 const hasMobileFilter = computed(() => route.path === '/security-policies/list')
 
-const isActive = (path: string) => {
-  if (path === '/security-policies/create') return route.path === path || route.path.startsWith('/security-policies/edit/')
-  return route.path === path
-}
+const isActive = (path: string) => route.path === path
 
 const navigateTo = (path: string) => {
   if (route.path !== path) router.push(path)

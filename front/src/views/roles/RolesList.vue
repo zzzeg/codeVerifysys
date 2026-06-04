@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import request from '../../utils/request'
 import { getPermissionLabel, permissionOptions } from '../../utils/permissions'
 import { useAuthStore } from '../../store/auth'
@@ -21,10 +22,12 @@ const list = ref<RoleItem[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const dialogVisible = ref(false)
+const formRef = ref<FormInstance>()
 const editingId = ref('')
 const dialogMode = ref<DialogMode>('create')
 const page = ref(1)
 const pageSize = ref(10)
+const total = ref(0)
 const tableHeight = 'var(--vs-table-max-height)'
 const auth = useAuthStore()
 
@@ -33,6 +36,9 @@ const form = reactive<Partial<RoleItem>>({
   description: '',
   permissions: [],
 })
+const rules: FormRules<typeof form> = {
+  name: [{ required: true, whitespace: true, message: '请输入角色名称', trigger: 'blur' }],
+}
 const baseRoleId = ref('role-developer')
 
 const isEdit = computed(() => Boolean(editingId.value))
@@ -53,11 +59,6 @@ const dialogTitle = computed(() => {
 const assignablePermissionOptions = computed(() =>
   permissionOptions.filter((item) => !['*', 'dashboard', 'users', 'roles', 'logs'].includes(item.value)),
 )
-const pagedList = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
-})
-
 const resetForm = () => {
   editingId.value = ''
   dialogMode.value = 'create'
@@ -72,10 +73,15 @@ const resetForm = () => {
 const fetchRoles = async () => {
   loading.value = true
   try {
-    const resp = await request.get('/api/roles')
-    list.value = resp.data.data
-    const maxPage = Math.max(1, Math.ceil(list.value.length / pageSize.value))
-    if (page.value > maxPage) page.value = maxPage
+    const resp = await request.get('/api/roles', { params: { page: page.value, pageSize: pageSize.value } })
+    const data = resp.data.data || {}
+    list.value = data.list || []
+    total.value = Number(data.total || 0)
+    const maxPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+    if (page.value > maxPage) {
+      page.value = maxPage
+      await fetchRoles()
+    }
   } finally {
     loading.value = false
   }
@@ -109,13 +115,11 @@ const saveRole = async () => {
     return
   }
 
-  if (!form.name?.trim()) {
-    ElMessage.warning('请输入角色名称')
-    return
-  }
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
 
   const payload = {
-    name: form.name.trim(),
+    name: (form.name || '').trim(),
     description: form.description || '',
     permissions: (form.permissions as string[] | undefined) || [],
     baseRoleId: baseRoleId.value,
@@ -152,11 +156,13 @@ const removeRole = async (row: RoleItem) => {
 
 const handlePageChange = (value: number) => {
   page.value = value
+  fetchRoles()
 }
 
 const handleSizeChange = (value: number) => {
   pageSize.value = value
   page.value = 1
+  fetchRoles()
 }
 
 onMounted(fetchRoles)
@@ -164,7 +170,7 @@ onMounted(fetchRoles)
 
 <template>
   <div class="roles-page">
-    <el-table :data="pagedList" :max-height="tableHeight" v-loading="loading" style="width: 100%">
+    <el-table :data="list" :max-height="tableHeight" v-loading="loading" style="width: 100%">
       <el-table-column prop="name" label="角色名称" min-width="130" />
       <el-table-column label="角色类型" width="120">
         <template #default="{ row }">
@@ -201,12 +207,12 @@ onMounted(fetchRoles)
       </el-table-column>
     </el-table>
 
-    <div class="pager">
+    <div v-if="total > pageSize" class="pager">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        :total="list.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         @current-change="handlePageChange"
         @size-change="handleSizeChange"
@@ -223,7 +229,7 @@ onMounted(fetchRoles)
       class="role-dialog"
       @closed="resetForm"
     >
-      <el-form :model="form" label-width="90px" class="role-form">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="role-form">
         <el-alert
           v-if="isSystemMode"
           class="role-form-alert"
@@ -237,7 +243,7 @@ onMounted(fetchRoles)
             <el-option label="开发者模板（注册默认角色）" value="role-developer" />
           </el-select>
         </el-form-item>
-        <el-form-item label="角色名称">
+        <el-form-item label="角色名称" prop="name">
           <el-input v-model="form.name" :disabled="dialogMode === 'view'" placeholder="请输入角色名称" />
         </el-form-item>
         <el-form-item label="角色说明">

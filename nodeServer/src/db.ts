@@ -9,6 +9,7 @@ export type CodeStatus = "unused" | "in_use" | "expired" | "frozen" | "deleted";
 export interface User {
   id: string;
   username: string;
+  developerCode?: string;
   passwordHash: string;
   roleIds: string[];
   permissions: string[];
@@ -93,9 +94,13 @@ export interface ProductVariant {
 export interface Product {
   id: string;
   projectId: string;
+  creatorUserId?: string;
   name: string;
   summary?: string;
+  status?: "draft" | "published";
+  coverUrl?: string;
   allowAnonymous: boolean;
+  addonMode?: boolean;
   minBuy: number;
   maxBuy: number;
   variants: ProductVariant[];
@@ -106,18 +111,41 @@ export interface Product {
 export interface Order {
   id: string;
   productId: string;
+  productName?: string;
+  creatorUserId?: string;
   buyer: string;
+  buyerEmail?: string;
+  mockPayToken?: string;
+  variantId?: string;
+  variantLabel?: string;
+  verifyCode?: string;
+  deliveryPayload?: string[];
   quantity: number;
   amount: number;
-  status: "pending" | "paid" | "failed";
+  status: "pending" | "paid" | "delivered" | "failed" | "closed";
+  settlementStatus?: "unsettled" | "settled";
+  settleAt?: number;
+  paidAt?: number;
+  deliveredAt?: number;
   createdAt: number;
+}
+
+export interface WithdrawalRecord {
+  id: string;
+  userId: string;
+  amount: number;
+  status: "processing" | "completed" | "rejected";
+  bankAccount: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
 }
 
 export interface Notification {
   id: string;
   title: string;
   content: string;
-  category: "system" | "todo";
+  category: "system" | "todo" | "order" | "settlement";
   read: boolean;
   createdAt: number;
 }
@@ -126,6 +154,7 @@ export interface SystemConfig {
   siteName: string;
   logo: string;
   uploadLimitMb: number;
+  settlementDays?: number;
   mail?: Record<string, unknown>;
   params: Record<string, string>;
 }

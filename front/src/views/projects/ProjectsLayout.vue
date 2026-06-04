@@ -11,8 +11,18 @@ const menu = [
   { path: '/projects/create', label: '新建项目' },
 ]
 
-const currentTitle = computed(() => (route.path === '/projects/create' ? '新建项目' : '项目管理'))
-const currentSubTitle = computed(() => (route.path === '/projects/create' ? '新建项目' : '项目列表'))
+const isCreateRoute = computed(() => route.path === '/projects/create')
+const isEditRoute = computed(() => route.path.startsWith('/projects/edit/'))
+const currentTitle = computed(() => {
+  if (isCreateRoute.value) return '新建项目'
+  if (isEditRoute.value) return '编辑项目'
+  return '项目管理'
+})
+const currentSubTitle = computed(() => {
+  if (isCreateRoute.value) return '新建项目'
+  if (isEditRoute.value) return '编辑项目'
+  return '项目列表'
+})
 const hasMobileFilter = computed(() => route.path === '/projects/list')
 const isActive = (path: string) => route.path === path
 const navigateTo = (path: string) => {

@@ -7,11 +7,12 @@ import {
   Document,
   Key,
   Lock,
+  Message,
   Menu,
   ArrowDown,
   ArrowRight,
   Promotion,
-  ShoppingCart,
+  SetUp,
   SwitchButton,
   Tickets,
   User as AvatarIcon,
@@ -49,7 +50,6 @@ const hasAccess = (permissions?: string[]) => {
 const allPrimaryMenu: NavItem[] = [
   { path: '/codes/list', basePath: '/codes', label: '注册码管理', icon: Tickets, permissions: ['codes'] },
   { path: '/projects/list', basePath: '/projects', label: '项目管理', icon: Collection, permissions: ['projects'] },
-  { path: '/products/list', basePath: '/products', label: '商品管理', icon: ShoppingCart, permissions: ['products'] },
   { path: '/custom-data/list', basePath: '/custom-data', label: '自定义数据', icon: DataAnalysis, permissions: ['custom-data'] },
   { path: '/security-policies/list', basePath: '/security-policies', label: '安全策略', icon: Lock, permissions: ['security-policies'] },
   { path: '/auto-delivery/list', basePath: '/auto-delivery', label: '自动发卡', icon: Promotion, permissions: ['auto-delivery'] },
@@ -64,10 +64,6 @@ const secondaryMenuMap: Record<string, NavItem[]> = {
   '/codes': [
     { path: '/codes/list', basePath: '/codes/list', label: '注册码列表', icon: Tickets },
     { path: '/codes/generate', basePath: '/codes/generate', label: '注册码生成', icon: Tickets },
-  ],
-  '/products': [
-    { path: '/products/list', basePath: '/products/list', label: '商品列表', icon: ShoppingCart },
-    { path: '/products/create', basePath: '/products/create', label: '新增商品', icon: ShoppingCart },
   ],
   '/custom-data': [
     { path: '/custom-data/list', basePath: '/custom-data/list', label: '数据列表', icon: DataAnalysis },
@@ -99,6 +95,7 @@ const manageMenu = computed<NavItem[]>(() => {
   return [
     { path: '/users/list', basePath: '/users', label: '用户管理', icon: UserFilled, adminOnly: true },
     { path: '/roles/list', basePath: '/roles', label: '角色配置', icon: Key, adminOnly: true },
+    { path: '/settlements', basePath: '/settlements', label: '结算管理', icon: SetUp, adminOnly: true },
     { path: '/logs/operation', basePath: '/logs', label: '全站日志', icon: Document, adminOnly: true },
   ]
 })
@@ -175,11 +172,17 @@ watch(
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="navigateTo('/profile')">
+                <el-dropdown-item @click="navigateTo('/profile/dashboard')">
                   <el-icon>
                     <AvatarIcon />
                   </el-icon>
                   个人中心
+                </el-dropdown-item>
+                <el-dropdown-item @click="navigateTo('/notifications')">
+                  <el-icon>
+                    <Message />
+                  </el-icon>
+                  通知中心
                 </el-dropdown-item>
                 <el-dropdown-item v-for="item in manageMenu" :key="item.path" @click="navigateTo(item.path)">
                   <el-icon>
@@ -233,12 +236,19 @@ watch(
             </button>
           </div>
         </template>
-        <button type="button" class="mobile-link" :class="{ active: route.path === '/profile' }"
-          @click="navigateTo('/profile')">
+        <button type="button" class="mobile-link" :class="{ active: route.path.startsWith('/profile') }"
+          @click="navigateTo('/profile/dashboard')">
           <el-icon>
             <AvatarIcon />
           </el-icon>
           <span>个人中心</span>
+        </button>
+        <button type="button" class="mobile-link" :class="{ active: route.path === '/notifications' }"
+          @click="navigateTo('/notifications')">
+          <el-icon>
+            <Message />
+          </el-icon>
+          <span>通知中心</span>
         </button>
         <button type="button" class="mobile-link danger" @click="handleLogout">
           <el-icon>

@@ -26,10 +26,7 @@ const currentSubTitle = computed(() => {
 })
 const hasMobileFilter = computed(() => route.path === '/users/list')
 
-const isActive = (path: string) => {
-  if (path === '/users/create') return route.path === path || route.path.startsWith('/users/edit/')
-  return route.path === path
-}
+const isActive = (path: string) => route.path === path
 
 const navigateTo = (path: string) => {
   if (route.path !== path) router.push(path)

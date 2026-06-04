@@ -13,6 +13,26 @@ const router = Router();
 router.use(authMiddleware);
 router.use(requirePermission("codes"));
 
+type GenerateTask = {
+  id: string;
+  status: "running" | "done" | "failed";
+  total: number;
+  progress: number;
+  items: RegisterCode[];
+  generated: string[];
+  error?: string;
+  createdAt: number;
+};
+
+const generateTasks = new Map<string, GenerateTask>();
+
+const cleanupGenerateTasks = () => {
+  const expireBefore = Date.now() - 60 * 60 * 1000;
+  for (const [id, task] of generateTasks.entries()) {
+    if (task.createdAt < expireBefore) generateTasks.delete(id);
+  }
+};
+
 const cardTypeExpireMsSqlCase = (cardTypeCol: string) => {
   const day = 86400000;
   return `CASE ${cardTypeCol}
@@ -68,7 +88,7 @@ const mapCodeRow = (r: any): RegisterCode => ({
   id: r.id,
   code: r.code,
   projectId: r.project_id,
-  projectName: r.project_name,
+  projectName: r.project_name || r.resolved_project_name || r.project_id,
   cardType: r.card_type,
   status: r.status,
   isOnline: Boolean(r.is_online),
@@ -112,6 +132,20 @@ const cardTypeExpireMs = (cardType: string) => {
       return 30 * day;
   }
 };
+
+const aliasRegisterCodeWhereSql = (sql: string) =>
+  sql
+    .replace(/\bproject_id\b/g, "rc.project_id")
+    .replace(/\bmachine_code\b/g, "rc.machine_code")
+    .replace(/\bstatus\b/g, "rc.status")
+    .replace(/\bcard_type\b/g, "rc.card_type")
+    .replace(/\bis_online\b/g, "rc.is_online")
+    .replace(/\bis_bound\b/g, "rc.is_bound")
+    .replace(/\bsale_type\b/g, "rc.sale_type")
+    .replace(/\bexpire_at\b/g, "rc.expire_at")
+    .replace(/\blast_login_at\b/g, "rc.last_login_at")
+    .replace(/\bactivated_at\b/g, "rc.activated_at")
+    .replace(/\bcode\b/g, "rc.code");
 
 const renewUnitMs = (unit: string) => {
   const day = 86400000;
@@ -235,11 +269,79 @@ router.post("/generate", async (req, res) => {
   const resolvedProjectName = project.name;
   const now = Date.now();
   const expireAt = null;
+  const max = Math.min(Math.max(Number(count) || 1, 1), 5000);
+
+  if (max > 1000) {
+    cleanupGenerateTasks();
+    const task: GenerateTask = { id: taskId, status: "running", total: max, progress: 0, items: [], generated: [], createdAt: now };
+    generateTasks.set(taskId, task);
+    setImmediate(async () => {
+      try {
+        for (let offset = 0; offset < max; offset += 500) {
+          const batchSize = Math.min(500, max - offset);
+          await withTransaction(async (conn) => {
+            for (let i = 0; i < batchSize; i++) {
+              let ok = false;
+              let codeValue = "";
+              for (let attempt = 0; attempt < 5; attempt++) {
+                codeValue = randomCode32();
+                try {
+                  const id = uuid();
+                  await conn.execute(
+                    `INSERT INTO ${table("register_codes")}
+                     (
+                       id, code, project_id, project_name, card_type,
+                       status, is_online, is_bound, machine_code, last_login_ip,
+                       last_login_at, activated_at, unbind_password,
+                       sale_type, remark, expire_at, created_at
+                     )
+                     VALUES (
+                       ?, ?, ?, ?, ?,
+                       'unused', 0, 0, NULL, NULL,
+                       NULL, NULL, NULL,
+                       ?, ?, ?, ?
+                     )`,
+                    [id, codeValue, resolvedProjectId, resolvedProjectName, cardType, saletype, remark || null, expireAt, now]
+                  );
+                  const item: RegisterCode = {
+                    id,
+                    code: codeValue,
+                    projectId: resolvedProjectId,
+                    projectName: resolvedProjectName,
+                    cardType,
+                    status: "unused",
+                    isOnline: false,
+                    isBound: false,
+                    saleType: saletype || "author_generated",
+                    remark: remark || undefined,
+                    createdAt: now,
+                  };
+                  task.items.push(item);
+                  task.generated.push(codeValue);
+                  task.progress += 1;
+                  ok = true;
+                  break;
+                } catch (err: any) {
+                  if (String(err?.code || "").includes("ER_DUP_ENTRY")) continue;
+                  throw err;
+                }
+              }
+              if (!ok) throw new Error("生成注册码失败：多次尝试仍冲突");
+            }
+          });
+        }
+        task.status = "done";
+      } catch (err: any) {
+        task.status = "failed";
+        task.error = err?.message || "生成失败";
+      }
+    });
+    return respond(res, { taskId, async: true, total: max });
+  }
 
   // 事务内生成注册码
   await withTransaction(async (conn) => {
     // 限制生成数量：1~5000
-    const max = Math.min(Math.max(Number(count) || 1, 1), 5000);
     for (let i = 0; i < max; i++) {
       let ok = false;
       let codeValue = "";
@@ -308,6 +410,20 @@ router.post("/generate", async (req, res) => {
   });
 
   return respond(res, { taskId, generated, items });
+});
+
+router.get("/generate/tasks/:taskId", (req, res) => {
+  const task = generateTasks.get(req.params.taskId);
+  if (!task) return respond(res, { status: "missing" });
+  return respond(res, {
+    taskId: task.id,
+    status: task.status,
+    total: task.total,
+    progress: task.progress,
+    error: task.error,
+    generated: task.status === "done" ? task.generated : [],
+    items: task.status === "done" ? task.items : [],
+  });
 });
 
 
@@ -421,7 +537,12 @@ router.post("/import", async (req, res) => {
 });
 router.get("/export", async (_req, res) => {
   await syncCodeExpireAndStatus(Date.now());
-  const rows = await query(`SELECT * FROM ${table("register_codes")} ORDER BY created_at DESC`);
+  const rows = await query(
+    `SELECT rc.*, p.name as resolved_project_name
+     FROM ${table("register_codes")} rc
+     LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+     ORDER BY rc.created_at DESC`
+  );
   return respond(res, { items: rows.map(mapCodeRow) });
 });
 
@@ -510,6 +631,9 @@ router.get("/", async (req, res) => {
       where.push(`status IN (${statuses.map(() => "?").join(",")})`);
       params.push(...statuses);
     }
+  } else {
+    where.push("status <> ?");
+    params.push("deleted");
   }
 
   if (cardType) {
@@ -551,7 +675,12 @@ router.get("/", async (req, res) => {
   const offset = (pageNum - 1) * size;
 
   const totalRow = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("register_codes")} ${whereSql}`, params);
-  const rows = await query(`SELECT * FROM ${table("register_codes")} ${whereSql} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [
+  const aliasedWhereSql = aliasRegisterCodeWhereSql(whereSql);
+  const rows = await query(`SELECT rc.*, p.name as resolved_project_name
+    FROM ${table("register_codes")} rc
+    LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+    ${aliasedWhereSql}
+    ORDER BY rc.created_at DESC LIMIT ? OFFSET ?`, [
     ...params,
     size,
     offset,
@@ -665,6 +794,13 @@ router.post("/batch/delete", async (req, res) => {
   return respond(res, {});
 });
 
+router.post("/batch/hard-delete", async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  if (!ids.length) return respond(res, {});
+  await execute(`DELETE FROM ${table("register_codes")} WHERE id IN (${sqlPlaceholders(ids.length)}) AND status = 'deleted'`, ids);
+  return respond(res, {});
+});
+
 router.post("/batch/recover", async (req, res) => {
   const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
   await restoreCodeStatuses(ids);
@@ -724,7 +860,13 @@ router.post("/batch/blacklist-ip", (_req, res) => {
 });
 
 router.get("/:id", async (req, res) => {
-  const row = await queryOne(`SELECT * FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+  const row = await queryOne(
+    `SELECT rc.*, p.name as resolved_project_name
+     FROM ${table("register_codes")} rc
+     LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+     WHERE rc.id = ?`,
+    [req.params.id]
+  );
   if (!row) return respondError(res, "未找到注册码", 404);
   return respond(res, mapCodeRow(row));
 });
@@ -789,6 +931,11 @@ router.patch("/:id/customer-info", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   await updateCodeStatus([req.params.id], "deleted");
+  return respond(res, {});
+});
+
+router.delete("/:id/hard-delete", async (req, res) => {
+  await execute(`DELETE FROM ${table("register_codes")} WHERE id = ? AND status = 'deleted'`, [req.params.id]);
   return respond(res, {});
 });
 

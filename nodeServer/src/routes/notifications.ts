@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { respond, authMiddleware } from "../middlewares/auth";
-import { execute, query } from "../db/mysql";
+import { respond, authMiddleware, requireAdmin } from "../middlewares/auth";
+import { execute, query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
-import type { Notification } from "../db";
+import { uuid, type Notification } from "../db";
+import { getPagination } from "../utils/pagination";
 
 const router = Router();
 router.use(authMiddleware);
@@ -16,9 +17,26 @@ const mapRow = (r: any): Notification => ({
   createdAt: Number(r.created_at),
 });
 
-router.get("/", async (_req, res) => {
-  const rows = await query(`SELECT * FROM ${table("notifications")} ORDER BY created_at DESC`);
-  return respond(res, rows.map(mapRow));
+router.get("/", async (req, res) => {
+  const { pageSize, offset } = getPagination(req.query as Record<string, any>);
+  const totalRow = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("notifications")}`);
+  const rows = await query(`SELECT * FROM ${table("notifications")} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [pageSize, offset]);
+  return respond(res, { list: rows.map(mapRow), total: Number(totalRow?.c || 0) });
+});
+
+router.post("/", requireAdmin(), async (req, res) => {
+  const title = String(req.body?.title || "").trim();
+  const content = String(req.body?.content || "").trim();
+  const category = String(req.body?.category || "system").trim() || "system";
+  if (!title || !content) return respond(res, {}, "标题和内容不能为空", 400);
+  const id = uuid();
+  const now = Date.now();
+  await execute(
+    `INSERT INTO ${table("notifications")} (id, title, content, category, is_read, created_at)
+     VALUES (?, ?, ?, ?, 0, ?)`,
+    [id, title, content, category, now],
+  );
+  return respond(res, { id });
 });
 
 router.get("/unread", async (_req, res) => {
@@ -42,4 +60,3 @@ router.delete("/:id", async (req, res) => {
 });
 
 export default router;
-

@@ -3,6 +3,7 @@ import { uuid, type Project, type RegisterCode, type CustomData } from "../db";
 import { respond, respondError, authMiddleware, requirePermission } from "../middlewares/auth";
 import { execute, query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
+import { getPagination } from "../utils/pagination";
 
 const router = Router();
 router.use(authMiddleware);
@@ -23,30 +24,54 @@ const parseJsonObj = (val: any): Record<string, any> => {
 };
 
 router.get("/", async (req, res) => {
-  const { keyword = "" } = req.query as Record<string, string>;
+  const { keyword = "", notice = "" } = req.query as Record<string, string>;
+  const { pageSize, offset } = getPagination(req.query as Record<string, any>);
   const kw = (keyword || "").trim();
+  const remark = (notice || "").trim();
+  const where: string[] = [];
+  const params: string[] = [];
 
+  if (kw) {
+    where.push("p.name LIKE ?");
+    params.push(`%${kw}%`);
+  }
+  if (remark) {
+    where.push("JSON_UNQUOTE(JSON_EXTRACT(p.config, '$.remark')) LIKE ?");
+    params.push(`%${remark}%`);
+  }
+
+  const totalRow = await queryOne<{ c: number }>(
+    `SELECT COUNT(*) as c
+     FROM ${table("projects")} p
+     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+    params,
+  );
   const rows = await query(
     `SELECT p.*,
             COUNT(c.id) as totalCodes,
             SUM(CASE WHEN c.status = 'in_use' THEN 1 ELSE 0 END) as activeCodes
      FROM ${table("projects")} p
      LEFT JOIN ${table("register_codes")} c ON c.project_id = p.id AND c.status <> 'deleted'
-     ${kw ? "WHERE p.name LIKE ?" : ""}
+     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
      GROUP BY p.id
-     ORDER BY p.created_at DESC`,
-    kw ? [`%${kw}%`] : []
+     ORDER BY p.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, pageSize, offset]
   );
 
-  const list: Project[] = rows.map((r: any) => ({
-    id: r.id,
-    projectNo: Number(r.project_no || 0) || undefined,
-    name: r.name,
-    description: r.description || undefined,
-    config: parseJsonObj(r.config),
-    stats: { totalCodes: Number(r.totalCodes || 0), activeCodes: Number(r.activeCodes || 0) },
-  }));
-  return respond(res, list);
+  const list: Array<Project & { remark?: string }> = rows.map((r: any) => {
+    const config = parseJsonObj(r.config);
+    return {
+      id: r.id,
+      projectNo: Number(r.project_no || 0) || undefined,
+      name: r.name,
+      description: r.description || undefined,
+      config,
+      remark: typeof config.remark === "string" ? config.remark : undefined,
+      stats: { totalCodes: Number(r.totalCodes || 0), activeCodes: Number(r.activeCodes || 0) },
+    };
+  });
+  return respond(res, { list, total: Number(totalRow?.c || 0) });
 });
 
 router.get("/names", async (_req, res) => {
@@ -108,9 +133,17 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   const row = await queryOne<{ id: string }>(`SELECT id FROM ${table("projects")} WHERE id = ?`, [req.params.id]);
   if (!row) return respondError(res, "未找到项目", 404);
-  const name = req.body?.name;
+  const name = typeof req.body?.name === "undefined" ? undefined : String(req.body.name || "").trim();
   const description = req.body?.description;
   const config = typeof req.body?.config === "undefined" ? undefined : req.body.config;
+  if (typeof name !== "undefined") {
+    if (!name) return respondError(res, "项目名称必填", 400);
+    const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table("projects")} WHERE name = ? AND id <> ?`, [
+      name,
+      req.params.id,
+    ]);
+    if (exists) return respondError(res, "项目名称已存在", 400);
+  }
   if (config && typeof config === "object") {
     const trialMode = String((config as any).trialMode || "");
     const trialTime = Number((config as any).trialTime);
@@ -133,7 +166,7 @@ router.put("/:id", async (req, res) => {
   await execute(
     `UPDATE ${table("projects")}
      SET name = COALESCE(?, name),
-         description = ?,
+         description = COALESCE(?, description),
          config = COALESCE(?, config),
          updated_at = ?
      WHERE id = ?`,

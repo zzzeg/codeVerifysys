@@ -26,8 +26,8 @@ const fetchDetail = async () => {
   if (!isEdit.value) return
   loading.value = true
   try {
-    const resp = await request.get('/api/roles')
-    const target = (resp.data.data as RoleItem[]).find((item) => item.id === editingId.value)
+    const resp = await request.get(`/api/roles/${editingId.value}`)
+    const target = resp.data.data as RoleItem | undefined
     if (target) {
       Object.assign(form, {
         name: target.name,

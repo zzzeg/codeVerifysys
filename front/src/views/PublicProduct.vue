@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import { publicRequest } from '../utils/request'
 import type { ApiResp } from '../utils/request'
 import { useRoute } from 'vue-router'
@@ -20,6 +21,7 @@ interface ProductItem {
   name: string
   summary?: string
   description?: string
+  coverUrl?: string
   allowAnonymous: boolean
   minBuy: number
   maxBuy: number
@@ -33,8 +35,12 @@ const paying = ref(false)
 const product = ref<ProductItem | null>(null)
 const selectedVariantId = ref('')
 const orderResult = ref<{ orderId: string; cards: string[] } | null>(null)
+const resultDialogVisible = ref(false)
+const formRef = ref<FormInstance>()
 const captchaImage = ref('')
 const captchaId = ref('')
+const loadError = ref('')
+const captchaError = ref('')
 const form = reactive({
   quantity: 1,
   email: '',
@@ -44,14 +50,52 @@ const form = reactive({
 
 const selectedVariant = computed(() => product.value?.variants.find((item) => item.id === selectedVariantId.value) || null)
 const totalAmount = computed(() => Number(selectedVariant.value?.price || 0) * Number(form.quantity || 1))
+const canDownloadCards = computed(() => (orderResult.value?.cards.length || 0) >= 5)
+
+const rules = computed<FormRules>(() => ({
+  quantity: [
+    {
+      validator: (_rule, value, callback) => {
+        const minBuy = Number(product.value?.minBuy || 1)
+        const maxBuy = Number(product.value?.maxBuy || 1)
+        const quantity = Number(value)
+        if (!Number.isFinite(quantity)) {
+          callback(new Error('请输入有效的购买数量'))
+          return
+        }
+        if (quantity < minBuy) {
+          callback(new Error(`购买数量不能少于 ${minBuy}`))
+          return
+        }
+        if (quantity > maxBuy) {
+          callback(new Error(`购买数量不能超过 ${maxBuy}`))
+          return
+        }
+        callback()
+      },
+      trigger: 'change',
+    },
+  ],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
+  ],
+  captchaCode: [
+    { required: true, message: '请输入验证码', trigger: 'blur' },
+  ],
+}))
 
 const fetchProduct = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     const resp = await publicRequest.get<ApiResp<ProductItem>>(`/api/products/public/${route.params.code}`)
     product.value = resp.data.data
     selectedVariantId.value = product.value.variants[0]?.id || ''
     form.quantity = product.value.minBuy || 1
+  } catch (err: any) {
+    product.value = null
+    loadError.value = err?.response?.data?.message || err?.message || '商品链接无效或商品已下架'
   } finally {
     loading.value = false
   }
@@ -59,25 +103,35 @@ const fetchProduct = async () => {
 
 const sendCaptcha = async () => {
   captchaSending.value = true
+  captchaError.value = ''
   try {
     const resp = await publicRequest.post<ApiResp<{ captchaId: string; image: string }>>(`/api/products/public/${route.params.code}/captcha`)
     captchaId.value = resp.data.data.captchaId
     captchaImage.value = resp.data.data.image
     form.captchaCode = ''
+  } catch (err: any) {
+    captchaId.value = ''
+    captchaImage.value = ''
+    captchaError.value = err?.response?.data?.message || err?.message || '验证码加载失败'
   } finally {
     captchaSending.value = false
   }
 }
 
+const retryLoad = async () => {
+  await fetchProduct()
+  if (product.value) await sendCaptcha()
+}
+
 const handlePurchase = async () => {
   if (!selectedVariant.value) return ElMessage.warning('请选择类型')
-  if (!form.email.trim()) return ElMessage.warning('请输入邮箱')
-  if (!form.captchaCode.trim()) return ElMessage.warning('请输入验证码')
   if (!captchaId.value) return ElMessage.warning('请先获取验证码')
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
 
   paying.value = true
   try {
-    const purchaseResp = await publicRequest.post<ApiResp<{ orderId: string }>>(`/api/products/public/${route.params.code}/purchase`, {
+    const purchaseResp = await publicRequest.post<ApiResp<{ orderId: string; mockPayToken: string }>>(`/api/products/public/${route.params.code}/purchase`, {
       variantId: selectedVariant.value.id,
       quantity: form.quantity,
       email: form.email,
@@ -85,40 +139,84 @@ const handlePurchase = async () => {
       captchaId: captchaId.value,
       captchaCode: form.captchaCode,
     })
+    if (purchaseResp.data.code !== 200) {
+      ElMessage.error(purchaseResp.data.message || '购买失败')
+      await sendCaptcha()
+      return
+    }
 
     const callbackResp = await publicRequest.post<ApiResp<{ orderId: string; cards: string[] }>>('/api/products/public/payment/callback', {
       orderId: purchaseResp.data.data.orderId,
+      mockPayToken: purchaseResp.data.data.mockPayToken,
       status: 'paid',
     })
+    if (callbackResp.data.code !== 200) {
+      ElMessage.error(callbackResp.data.message || '购买失败')
+      await sendCaptcha()
+      return
+    }
 
     orderResult.value = callbackResp.data.data
+    resultDialogVisible.value = true
     ElMessage.success('支付成功，卡密已生成')
-    await sendCaptcha()
+    await sendCaptcha().catch(() => undefined)
   } catch (err: any) {
-    ElMessage.error(err?.response?.data?.message || '购买失败')
-    await sendCaptcha()
+    ElMessage.error(err?.response?.data?.message || err?.message || '购买失败')
+    await sendCaptcha().catch(() => undefined)
   } finally {
     paying.value = false
   }
 }
 
+const closeResultDialog = () => {
+  resultDialogVisible.value = false
+}
+
+const downloadCardsAsTxt = () => {
+  if (!orderResult.value?.cards.length) return
+  const fileName = `order-${orderResult.value.orderId}.txt`
+  const fileContent = orderResult.value.cards.join('\r\n')
+  const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 onMounted(async () => {
+  document.documentElement.classList.add('public-route-scroll')
+  document.body.classList.add('public-route-scroll')
+  document.getElementById('app')?.classList.add('public-route-scroll')
   await fetchProduct()
-  await sendCaptcha()
+  if (product.value) await sendCaptcha()
+})
+
+onBeforeUnmount(() => {
+  document.documentElement.classList.remove('public-route-scroll')
+  document.body.classList.remove('public-route-scroll')
+  document.getElementById('app')?.classList.remove('public-route-scroll')
 })
 </script>
 
 <template>
   <div class="public-product-page" v-loading="loading">
+    <div v-if="loadError" class="public-error-state">
+      <h1>商品不可用</h1>
+      <p>{{ loadError }}</p>
+      <el-button type="primary" @click="retryLoad">重试</el-button>
+    </div>
     <div v-if="product" class="public-product-shell">
       <section class="hero">
         <div class="hero-cover">
           <div class="cover-mark">
-            <img :src="defaultProductCover" :alt="product.name" class="cover-mark-image" />
+            <img :src="product.coverUrl || defaultProductCover" :alt="product.name" class="cover-mark-image" />
           </div>
         </div>
         <div class="hero-main">
-          <el-form label-position="left" label-width="auto" class="hero-form">
+          <el-form ref="formRef" :model="form" :rules="rules" label-position="right" label-width="auto"
+            class="hero-form">
             <div class="hero-header">
               <h1>{{ product.name }}</h1>
               <p>{{ product.summary || '自动发货商品，下单后系统即时返回卡密。' }}</p>
@@ -137,11 +235,11 @@ onMounted(async () => {
               </div>
             </el-form-item>
 
-            <el-form-item label="数量" class="hero-form-item">
+            <el-form-item label="数量" prop="quantity" class="hero-form-item">
               <el-input-number v-model="form.quantity" :min="product.minBuy" :max="product.maxBuy" />
             </el-form-item>
 
-            <el-form-item label="邮箱" class="hero-form-item">
+            <el-form-item label="邮箱" prop="email" class="hero-form-item">
               <el-input v-model="form.email" placeholder="请输入邮箱，订单与卡密会发送到该邮箱" />
             </el-form-item>
 
@@ -158,7 +256,7 @@ onMounted(async () => {
               </div>
             </el-form-item>
 
-            <el-form-item label="验证码" class="hero-form-item">
+            <el-form-item label="验证码" prop="captchaCode" class="hero-form-item">
               <div class="captcha-inline">
                 <el-input v-model="form.captchaCode" placeholder="请输入图形验证码" />
                 <button type="button" class="captcha-image-btn" :disabled="captchaSending" @click="sendCaptcha">
@@ -166,6 +264,7 @@ onMounted(async () => {
                   <span v-else>{{ captchaSending ? '加载中...' : '获取验证码' }}</span>
                 </button>
               </div>
+              <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
             </el-form-item>
 
             <div class="buy-bar">
@@ -184,13 +283,40 @@ onMounted(async () => {
         <div class="detail-text">{{ product.description || '暂无商品描述' }}</div>
       </section>
 
-      <section v-if="orderResult" class="result-card">
-        <h2>购买成功</h2>
-        <p>订单号：{{ orderResult.orderId }}</p>
-        <div class="cards-block">
-          <div v-for="card in orderResult.cards" :key="card" class="card-item">{{ card }}</div>
-        </div>
-      </section>
+      <el-dialog v-model="resultDialogVisible" class="purchase-result-dialog" width="100vw" top="0" align-center
+        :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false" :lock-scroll="true">
+        <template v-if="orderResult">
+          <div class="result-dialog-shell">
+            <div class="result-dialog-head">
+              <div>
+                <h2>购买成功</h2>
+                <p>请立即保存本次购买结果，页面刷新后不会保留当前展示内容。</p>
+              </div>
+            </div>
+
+            <div class="result-meta">
+              <div class="result-meta-item">
+                <span>订单号</span>
+                <strong>{{ orderResult.orderId }}</strong>
+              </div>
+              <div class="result-meta-item">
+                <span>卡密数量</span>
+                <strong>{{ orderResult.cards.length }}</strong>
+              </div>
+            </div>
+
+            <h3 class="result-subtitle">商品信息</h3>
+            <div class="cards-block">
+              <div v-for="card in orderResult.cards" :key="card" class="card-item">{{ card }}</div>
+            </div>
+
+            <div class="result-dialog-actions">
+              <el-button v-if="canDownloadCards" type="primary" @click="downloadCardsAsTxt">下载 txt</el-button>
+              <el-button type="info" @click="closeResultDialog">关闭</el-button>
+            </div>
+          </div>
+        </template>
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -207,6 +333,29 @@ onMounted(async () => {
   margin: 0 auto;
   display: grid;
   gap: 20px;
+}
+
+.public-error-state {
+  width: min(520px, 100%);
+  margin: 18vh auto 0;
+  padding: 28px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.public-error-state h1 {
+  margin: 0;
+  color: #111827;
+  font-size: 24px;
+}
+
+.public-error-state p {
+  margin: 12px 0 20px;
+  color: #6b7280;
+  line-height: 1.7;
 }
 
 .hero,
@@ -265,7 +414,6 @@ onMounted(async () => {
   align-items: flex-end;
   gap: 14px;
   padding: 18px 0;
-  /* border-top: 1px solid #edf2f7; */
   border-bottom: 1px solid #edf2f7;
   margin: 0 0 18px 0;
 }
@@ -277,7 +425,7 @@ onMounted(async () => {
 }
 
 .hero-form-item {
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 
 
@@ -286,7 +434,6 @@ onMounted(async () => {
   color: #374151;
   font-size: 14px;
   font-weight: 700;
-  /* line-height: 1.2; */
   justify-content: flex-start;
   align-items: center;
   padding-right: 14px;
@@ -414,6 +561,13 @@ onMounted(async () => {
   height: 100%;
 }
 
+.captcha-error {
+  margin-top: 6px;
+  color: var(--el-color-danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .buy-bar {
   display: flex;
   align-items: center;
@@ -455,6 +609,42 @@ onMounted(async () => {
   font-size: 20px;
 }
 
+.result-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.result-meta-item {
+  padding: 12px 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
+.result-meta-item span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.result-meta-item strong {
+  display: block;
+  margin-top: 6px;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.result-subtitle {
+  margin: 0;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .detail-text {
   color: #374151;
   line-height: 1.9;
@@ -463,17 +653,69 @@ onMounted(async () => {
 
 .cards-block {
   display: grid;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 4px;
 }
 
 .card-item {
-  padding: 12px 14px;
+  padding: 5px 14px;
   border-radius: 10px;
   background: #f8fafc;
   color: #111827;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-all;
+}
+
+:deep(.purchase-result-dialog) {
+  margin: 0;
+}
+
+:deep(.purchase-result-dialog.el-dialog) {
+  width: 100vw !important;
+  max-width: 100vw;
+  min-height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+}
+
+:deep(.purchase-result-dialog .el-dialog__header) {
+  display: none;
+}
+
+:deep(.purchase-result-dialog .el-dialog__body) {
+  min-height: 100dvh;
+  padding: 0;
+  background:
+    linear-gradient(180deg, rgba(236, 245, 255, 0.92), rgba(255, 255, 255, 0.98)),
+    #f8fafc;
+}
+
+.result-dialog-shell {
+  max-width: 920px;
+  max-height: 100dvh;
+  margin: 0 auto;
+  padding: 36px 24px calc(32px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.result-dialog-head h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 28px;
+}
+
+.result-dialog-head p {
+  margin: 10px 0 0;
+  color: #475569;
+  line-height: 1.7;
+}
+
+.result-dialog-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
 }
 
 @media (max-width: 768px) {
@@ -533,7 +775,6 @@ onMounted(async () => {
   .hero-form-item :deep(.el-form-item__label) {
     display: block;
     width: auto !important;
-    /* padding: 0 0 8px; */
     text-align: left;
   }
 
@@ -586,7 +827,7 @@ onMounted(async () => {
   }
 
   .hero-form-item :deep(.el-input-number) {
-    width: 100%;
+    width: 53%;
   }
 
   .hero-form-item :deep(.el-input-number .el-input__wrapper) {
@@ -598,15 +839,7 @@ onMounted(async () => {
   }
 
   .captcha-inline {
-    /* flex-direction: column; */
-    /* align-items: stretch; */
     gap: 8px;
-  }
-
-  .captcha-image-btn {
-    /* width: 100%;
-    height: 40px; */
-    /* border: 1px solid #dbe4f0; */
   }
 
   .buy-bar {
@@ -657,12 +890,30 @@ onMounted(async () => {
     padding: 10px 12px;
     font-size: 13px;
   }
+
+  .result-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .result-dialog-shell {
+    padding: 20px 14px calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .result-dialog-head h2 {
+    font-size: 24px;
+  }
+
+  .result-dialog-actions {
+    position: sticky;
+    bottom: 0;
+    padding: 10px 0 calc(2px + env(safe-area-inset-bottom));
+  }
 }
 
 @media (max-width: 480px) {
   .public-product-page {
     padding: 8px;
-    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+    padding-bottom: calc(72px + env(safe-area-inset-bottom));
   }
 
   .hero {
@@ -687,13 +938,8 @@ onMounted(async () => {
     flex-wrap: wrap;
   }
 
-  .payment-methods {
-    /* flex-direction: column; */
-  }
-
   .payment-method-btn {
     flex: none;
-    /* width: 100%; */
   }
 
   .amount-label {

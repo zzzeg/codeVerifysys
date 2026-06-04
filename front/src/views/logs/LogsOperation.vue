@@ -1,29 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import request from '../../utils/request'
 import { formatDateTimeCell } from '../../utils/datetime'
 
 const list = ref<any[]>([])
 const page = ref(1)
 const pageSize = ref(30)
-
-const pagedList = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
-})
+const total = ref(0)
 
 const fetchLogs = async () => {
-  const resp = await request.get('/api/logs/operation')
-  list.value = resp.data.data
+  const resp = await request.get('/api/logs/operation', { params: { page: page.value, pageSize: pageSize.value } })
+  list.value = resp.data.data.list || []
+  total.value = Number(resp.data.data.total || 0)
 }
 
 const handlePageChange = (value: number) => {
   page.value = value
+  fetchLogs()
 }
 
 const handleSizeChange = (value: number) => {
   pageSize.value = value
   page.value = 1
+  fetchLogs()
 }
 
 onMounted(fetchLogs)
@@ -31,18 +30,18 @@ onMounted(fetchLogs)
 
 <template>
   <div class="log-page">
-    <el-table :data="pagedList" height="100%" style="width: 100%" size="small">
+    <el-table :data="list" height="100%" style="width: 100%" size="small">
       <el-table-column prop="action" label="动作" />
       <el-table-column prop="user" label="用户" />
       <el-table-column prop="createdAt" label="时间" :formatter="formatDateTimeCell" />
     </el-table>
 
-    <div class="pager">
+    <div v-if="total > pageSize" class="pager">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :page-sizes="[20, 30, 50, 100]"
-        :total="list.length"
+        :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         @current-change="handlePageChange"
         @size-change="handleSizeChange"

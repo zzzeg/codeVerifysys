@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
 
 interface ProjectOption {
@@ -20,6 +20,7 @@ interface CustomDataItem {
 }
 
 const router = useRouter()
+const route = useRoute()
 const list = ref<CustomDataItem[]>([])
 const loading = ref(false)
 const total = ref(0)
@@ -29,7 +30,7 @@ const filterDrawerOpen = ref(false)
 const tableMaxHeight = 'var(--vs-table-max-height)'
 
 const fetchProjects = async () => {
-  const resp = await request.get('/api/projects')
+  const resp = await request.get('/api/projects', { params: { page: 1, pageSize: 200 } })
   const rows = (resp.data.data.list || resp.data.data || []) as any[]
   projects.value = rows.map((row) => ({ id: row.id, name: row.name }))
 }
@@ -87,15 +88,34 @@ const openMobileFilter = () => {
   filterDrawerOpen.value = true
 }
 
+const applyProjectQuery = (projectId: unknown) => {
+  const nextProjectId = typeof projectId === 'string' ? projectId : ''
+  if (nextProjectId === query.projectId) return
+  query.projectId = nextProjectId
+  query.page = 1
+  fetchData()
+}
+
 onMounted(async () => {
   window.addEventListener('vs-open-mobile-filter', openMobileFilter)
   await fetchProjects()
+  const initialProjectId = typeof route.query.projectId === 'string' ? route.query.projectId : ''
+  if (initialProjectId) {
+    query.projectId = initialProjectId
+  }
   await fetchData()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('vs-open-mobile-filter', openMobileFilter)
 })
+
+watch(
+  () => route.query.projectId,
+  (projectId) => {
+    applyProjectQuery(projectId)
+  },
+)
 </script>
 
 <template>
@@ -149,7 +169,7 @@ onBeforeUnmount(() => {
       </el-table-column>
     </el-table>
 
-    <div class="pager">
+    <div v-if="total > query.pageSize" class="pager">
       <el-pagination
         v-model:current-page="query.page"
         v-model:page-size="query.pageSize"

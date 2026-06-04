@@ -94,6 +94,9 @@ const listRequestId = ref(0)
 const projectsRequestId = ref(0)
 
 const hasSelection = computed(() => selectedRows.value.length > 0)
+const deletedSelectionCount = computed(() => selectedRows.value.filter((row) => row.status === 'deleted').length)
+const hasDeletedSelection = computed(() => deletedSelectionCount.value > 0)
+const hasOnlyDeletedSelection = computed(() => hasSelection.value && deletedSelectionCount.value === selectedRows.value.length)
 const selectedProjectIds = computed(() =>
   Array.from(new Set(selectedRows.value.map((row) => row.projectId).filter(Boolean)))
 )
@@ -151,7 +154,7 @@ const renewPreviewExpireAt = computed(() => renewBaseTime.value + renewDurationM
 const renewDialogTitle = computed(() => (renewMode.value === 'batch' ? '批量续费' : '续费'))
 const renewActionText = computed(() => (renewDurationMs.value < 0 ? '扣除' : '续费'))
 const paginationLayout = computed(() =>
-  isMobile.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper',
+  isMobile.value ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper',
 )
 
 const relayoutTable = () => {
@@ -213,7 +216,7 @@ const buildQueryParams = (page = filters.currentPage, pageSize = filters.pageSiz
 const fetchProjects = async () => {
   const requestId = ++projectsRequestId.value
   try {
-    const resp = await request.get('/api/projects')
+    const resp = await request.get('/api/projects', { params: { page: 1, pageSize: 200 } })
     if (requestId !== projectsRequestId.value) return
     projects.value = resp.data.data.list || resp.data.data || []
   } catch (err) {
@@ -415,7 +418,7 @@ const handleOffline = async (row: CodeItem) => {
 // 删除
 const handleDelete = async (row: CodeItem) => {
   try {
-    await ElMessageBox.confirm('确定要删除该注册码吗？删除后无法恢复！', '警告', {
+    await ElMessageBox.confirm('确定要删除该注册码吗？', '警告', {
       type: 'error',
       confirmButtonText: '确定删除',
       cancelButtonText: '取消',
@@ -426,6 +429,21 @@ const handleDelete = async (row: CodeItem) => {
   } catch (err: any) {
     if (err !== 'cancel') {
       ElMessage.error(err.response?.data?.message || '删除失败')
+    }
+  }
+}
+
+const handleRecover = async (row: CodeItem) => {
+  try {
+    await ElMessageBox.confirm('确定要恢复该注册码吗？', '提示', {
+      type: 'warning',
+    })
+    await request.post('/api/codes/batch/recover', { ids: [row.id] })
+    ElMessage.success('恢复成功')
+    fetchList()
+  } catch (err: any) {
+    if (err !== 'cancel') {
+      ElMessage.error(err.response?.data?.message || '恢复失败')
     }
   }
 }
@@ -473,23 +491,41 @@ const handleBatchDelete = async () => {
     ElMessage.warning('请先选择要删除的注册码')
     return
   }
+  if (hasDeletedSelection.value && !hasOnlyDeletedSelection.value) {
+    ElMessage.warning('彻底删除时请仅选择状态为已删除的注册码')
+    return
+  }
   try {
-    await ElMessageBox.confirm(
-      `确定要删除选中的 ${selectedRows.value.length} 个注册码吗？删除后无法恢复！`,
-      '警告',
-      {
-        type: 'error',
-        confirmButtonText: '确定删除',
-        cancelButtonText: '取消',
-      }
-    )
     const ids = selectedRows.value.map((r) => r.id)
-    await request.post('/api/codes/batch/delete', { ids })
-    ElMessage.success((selectedRows.value.length > 1 ? '批量' : '') + '删除成功')
+    if (hasOnlyDeletedSelection.value) {
+      await ElMessageBox.confirm(
+        `确定要彻底删除选中的 ${selectedRows.value.length} 个注册码吗？`, //该操作会从数据库中移除，无法恢复！
+        '警告',
+        {
+          type: 'error',
+          confirmButtonText: '确定彻底删除',
+          cancelButtonText: '取消',
+        }
+      )
+      await request.post('/api/codes/batch/hard-delete', { ids })
+      ElMessage.success((selectedRows.value.length > 1 ? '批量' : '') + '删除成功') //彻底删除
+    } else {
+      await ElMessageBox.confirm(
+        `确定要删除选中的 ${selectedRows.value.length} 个注册码吗？`,
+        '提示',
+        {
+          type: 'warning',
+          confirmButtonText: '确定删除',
+          cancelButtonText: '取消',
+        }
+      )
+      await request.post('/api/codes/batch/delete', { ids })
+      ElMessage.success((selectedRows.value.length > 1 ? '批量' : '') + '删除成功')
+    }
     fetchList()
   } catch (err: any) {
     if (err !== 'cancel') {
-      ElMessage.error(err.response?.data?.message || (selectedRows.value.length > 1 ? '批量' : '') + '删除失败')
+      ElMessage.error(err.response?.data?.message || (selectedRows.value.length > 1 ? '批量' : '') + (hasOnlyDeletedSelection.value ? '彻底删除失败' : '删除失败'))
     }
   }
 }
@@ -679,7 +715,11 @@ const statusMap: Record<string, { text: string; color: string }> = {
   in_use: { text: '使用中', color: '#67c23a' },
   expired: { text: '已过期', color: '#f56c6c' },
   frozen: { text: '已冻结', color: '#e6a23c' },
+  deleted: { text: '已删除', color: '#c0c4cc' },
 }
+
+const getStatusText = (status?: string) => statusMap[status || '']?.text || '未知状态'
+const getStatusColor = (status?: string) => statusMap[status || '']?.color || '#909399'
 
 
 
@@ -1098,7 +1138,8 @@ watch(
         <el-button link type="primary" size="small" @click="handleBatchUnbind">解绑</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangeProject">改项目类型</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangeNote">改备注</el-button>
-        <el-button link type="primary" size="small" @click="handleBatchDelete">删除</el-button>
+        <el-button link type="primary" size="small" @click="handleBatchDelete">{{ hasDeletedSelection ? '彻底删除' : '删除'
+        }}</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecover">恢复</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecharge">续费</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangePassword">重置解绑密码</el-button>
@@ -1114,21 +1155,21 @@ watch(
           @row-click="handleRowClick" @selection-change="handleSelectionChange" style="width: 100%">
           <el-table-column type="selection" width="40" />
           <!-- <el-table-column type="index" width="40" /> -->
-          <el-table-column prop="code" label="注册码" min-width="260" />
+          <el-table-column prop="code" label="注册码" width="280" />
           <el-table-column label="卡类型" min-width="74">
             <template #default="{ row }">
               {{ cardTypeMap[row.cardType] || row.cardType }}
             </template>
           </el-table-column>
-          <el-table-column prop="projectName" label="项目类型" min-width="94" />
+          <el-table-column prop="projectName" label="项目类型" min-width="80" />
           <el-table-column label="状态" min-width="78">
             <template #default="{ row }">
-              <span :style="{ color: statusMap[row.status]?.color || '#909399' }">
-                {{ statusMap[row.status]?.text || row.status }}
+              <span :style="{ color: getStatusColor(row.status) }">
+                {{ getStatusText(row.status) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="激活时间/到期时间/最后访问时间" min-width="240">
+          <el-table-column label="激活时间/到期时间/最后访问时间" min-width="220">
             <template #default="{ row }">
               <div class="time-info">
                 <div>{{ formatDateTime(row.activatedAt, 'yyyy-MM-dd') || '未使用' }} / {{ formatDateTime(row.expireAt,
@@ -1136,7 +1177,7 @@ watch(
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="在线" min-width="64">
+          <el-table-column label="在线" min-width="60">
             <template #default="{ row }">
               <span :style="{ color: row.isOnline ? '#67c23a' : '#909399' }">
                 {{ row.isOnline ? '在线' : '离线' }}
@@ -1150,7 +1191,7 @@ watch(
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="解绑密码" min-width="92">
+          <el-table-column label="解绑密码" min-width="80">
             <template #default="{ row }">
               {{ row.unbindPassword || '未设置' }}
             </template>
@@ -1169,7 +1210,9 @@ watch(
 
                 <el-link v-if="!row.isOnline" type="info" disabled>离线</el-link>
                 <el-link v-else type="primary" size="small" @click.stop="handleOffline(row)">下线</el-link>
-                <el-link type="danger" size="small" @click.stop="handleDelete(row)">删除</el-link>
+                <el-link v-if="row.status === 'deleted'" type="primary" size="small"
+                  @click.stop="handleRecover(row)">恢复</el-link>
+                <el-link v-else type="danger" size="small" @click.stop="handleDelete(row)">删除</el-link>
               </div>
             </template>
           </el-table-column>
@@ -1182,10 +1225,10 @@ watch(
       </div>
 
       <!-- 分页 -->
-      <div class="pagination-wrap">
+      <div v-if="total > filters.pageSize" class="pagination-wrap">
         <el-pagination v-model:current-page="filters.currentPage" v-model:page-size="filters.pageSize"
-          :page-sizes="[20, 50, 80, 100]" :total="total" :layout="paginationLayout" prev-text="上一页" next-text="下一页"
-          @current-change="handlePageChange" @size-change="handleSizeChange" />
+          :page-sizes="[20, 50, 80, 100]" :total="total" :layout="paginationLayout" @current-change="handlePageChange"
+          @size-change="handleSizeChange" />
       </div>
     </div>
 
@@ -1207,7 +1250,8 @@ watch(
         <button type="button" @click="handleBatchAddIP(); batchActionSheetOpen = false">IP黑名单</button>
         <button type="button" @click="openExportDialog(); batchActionSheetOpen = false">导出</button>
         <button type="button" @click="openImportDialog(); batchActionSheetOpen = false">导入</button>
-        <button type="button" class="danger" @click="handleBatchDelete(); batchActionSheetOpen = false">删除</button>
+        <button type="button" class="danger" @click="handleBatchDelete(); batchActionSheetOpen = false">{{
+          hasDeletedSelection ? '彻底删除' : '删除' }}</button>
         <button type="button" class="danger full"
           @click="handleCleanupExpired(); batchActionSheetOpen = false">清理已过期</button>
       </div>
@@ -1252,8 +1296,8 @@ watch(
             <tr>
               <td class="label-cell">使用状态</td>
               <td class="value-cell">
-                <span :style="{ color: statusMap[currentRow.status]?.color }">
-                  {{ statusMap[currentRow.status]?.text }}
+                <span :style="{ color: getStatusColor(currentRow.status) }">
+                  {{ getStatusText(currentRow.status) }}
                 </span>
               </td>
               <td class="label-cell">在线状态</td>
@@ -1302,8 +1346,8 @@ watch(
           </div>
           <div class="detail-card-item">
             <span>使用状态</span>
-            <strong :style="{ color: statusMap[currentRow.status]?.color }">{{ statusMap[currentRow.status]?.text ||
-              currentRow.status }}</strong>
+            <strong :style="{ color: getStatusColor(currentRow.status) }">{{ getStatusText(currentRow.status)
+            }}</strong>
           </div>
           <div class="detail-card-item">
             <span>在线状态</span>

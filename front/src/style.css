@@ -59,6 +59,14 @@ body,
   overflow: hidden;
 }
 
+html.public-route-scroll,
+body.public-route-scroll,
+#app.public-route-scroll {
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+}
+
 body {
   margin: 0;
   background:
@@ -75,6 +83,15 @@ body {
     linear-gradient(180deg, #f7fbff 0%, #eef3fb 52%, #edf2f9 100%);
   color: var(--vs-text);
   overflow: hidden;
+}
+
+body.public-route-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 .route-progress-bar {
@@ -712,15 +729,31 @@ select {
   }
 
   .el-pagination {
-    justify-content: flex-start;
+    justify-content: center;
+    gap: 4px;
     overflow-x: auto;
     padding-bottom: 4px;
     white-space: nowrap;
   }
 
+  .el-pagination .el-pagination__sizes,
+  .el-pagination .el-pagination__jump {
+    display: none !important;
+  }
+
+  .el-pagination .btn-prev,
+  .el-pagination .btn-next,
+  .el-pagination .el-pager li {
+    min-width: 28px;
+    height: 28px;
+    margin: 0 1px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
+
   .pager,
   .pagination-wrap {
-    justify-content: flex-start;
+    justify-content: center;
     overflow-x: auto;
     padding-top: 12px;
   }
@@ -729,7 +762,7 @@ select {
   .content-shell .roles-page > .pager,
   .content-shell .log-page > .pager {
     min-height: 58px;
-    justify-content: flex-start;
+    justify-content: center;
     padding: 12px 12px 18px;
     overflow-x: auto;
   }

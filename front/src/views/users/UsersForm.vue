@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
 import type { ApiResp } from '../../utils/request'
@@ -25,6 +26,7 @@ const router = useRouter()
 const editingId = computed(() => String(route.params.id || ''))
 const isEdit = computed(() => !!editingId.value)
 const loading = ref(false)
+const formRef = ref<FormInstance>()
 const roles = ref<RoleItem[]>([])
 const rolesRequestId = ref(0)
 const detailRequestId = ref(0)
@@ -39,11 +41,24 @@ const form = reactive<Partial<UserItem & { password: string }>>({
 })
 const selectedRoleId = ref('role-developer')
 
+const validateEmail = (_rule: unknown, value: string | undefined, callback: (error?: Error) => void) => {
+  if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    callback(new Error('邮箱格式不正确'))
+    return
+  }
+  callback()
+}
+
+const rules: FormRules<typeof form> = {
+  username: [{ required: true, whitespace: true, message: '请输入用户名', trigger: 'blur' }],
+  email: [{ validator: validateEmail, trigger: 'blur' }],
+}
+
 const fetchRoles = async () => {
   const requestId = ++rolesRequestId.value
-  const resp = await request.get<ApiResp<RoleItem[]>>('/api/roles')
+  const resp = await request.get<ApiResp<{ list: RoleItem[]; total: number }>>('/api/roles', { params: { page: 1, pageSize: 200 } })
   if (requestId !== rolesRequestId.value) return
-  roles.value = resp?.data?.data ?? []
+  roles.value = resp?.data?.data?.list ?? []
   if (!isEdit.value && !selectedRoleId.value && roles.value.some((role) => role.id === 'role-developer')) {
     selectedRoleId.value = 'role-developer'
   }
@@ -75,12 +90,12 @@ const fetchDetail = async () => {
 }
 
 const saveUser = async () => {
-  if (!form.username?.trim()) return ElMessage.warning('请输入用户名')
-  if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return ElMessage.warning('邮箱格式不正确')
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
   try {
     const payload = {
       ...form,
-      username: form.username.trim(),
+      username: (form.username || '').trim(),
       email: form.email?.trim() || '',
       phone: form.phone?.trim() || '',
       roleIds: selectedRoleId.value ? [selectedRoleId.value] : [],
@@ -114,9 +129,9 @@ onMounted(async () => {
   <div class="form-shell pure-form-shell" v-loading="loading">
     <div class="pure-form-card">
       <div class="pure-form-title">基础信息</div>
-      <el-form :model="form" label-width="96px">
-        <el-form-item label="用户名"><el-input v-model="form.username" placeholder="请输入用户名" /></el-form-item>
-        <el-form-item label="邮箱"><el-input v-model="form.email" placeholder="请输入邮箱" /></el-form-item>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
+        <el-form-item label="用户名" prop="username"><el-input v-model="form.username" placeholder="请输入用户名" /></el-form-item>
+        <el-form-item label="邮箱" prop="email"><el-input v-model="form.email" placeholder="请输入邮箱" /></el-form-item>
         <el-form-item label="电话"><el-input v-model="form.phone" placeholder="请输入电话" /></el-form-item>
         <el-form-item v-if="!isEdit" label="密码">
           <el-input v-model="form.password" type="password" show-password placeholder="默认可填写初始密码" />

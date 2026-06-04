@@ -26,6 +26,7 @@ const loadUserById = async (userId: string): Promise<User | undefined> => {
   const row = await queryOne<{
     id: string;
     username: string;
+    developer_code: string | null;
     password_hash: string;
     status: string;
     email: string | null;
@@ -67,6 +68,7 @@ const loadUserById = async (userId: string): Promise<User | undefined> => {
   return {
     id: row.id,
     username: row.username,
+    developerCode: row.developer_code || undefined,
     passwordHash: row.password_hash,
     roleIds: roles.map((r) => r.role_id),
     permissions: resolvedPermissions,

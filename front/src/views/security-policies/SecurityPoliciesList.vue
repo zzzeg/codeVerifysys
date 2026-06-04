@@ -37,7 +37,7 @@ const statusText = (status: PolicyStatus) => (status === 'enabled' ? '开启' : 
 const modeText = (mode: PolicyMode) => (mode === 'advanced' ? '高级' : '初级')
 
 const fetchProjects = async () => {
-  const resp = await request.get('/api/projects')
+  const resp = await request.get('/api/projects', { params: { page: 1, pageSize: 200 } })
   const rows = (resp.data.data.list || resp.data.data || []) as any[]
   projects.value = rows.map((row) => ({ id: row.id, name: row.name }))
 }
@@ -52,13 +52,8 @@ const fetchPolicies = async () => {
 
     const resp = await request.get('/api/security-policies', { params })
     const data = resp.data.data as any
-    if (Array.isArray(data)) {
-      list.value = data
-      total.value = data.length
-    } else {
-      list.value = data?.list || []
-      total.value = data?.total || 0
-    }
+    list.value = data?.list || []
+    total.value = data?.total || 0
   } finally {
     loading.value = false
   }
@@ -194,7 +189,7 @@ onBeforeUnmount(() => {
       </el-table-column>
     </el-table>
 
-    <div class="pager">
+    <div v-if="total > pagination.pageSize" class="pager">
       <el-pagination
         v-model:current-page="pagination.page"
         v-model:page-size="pagination.pageSize"

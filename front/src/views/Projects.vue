@@ -22,8 +22,8 @@ const form = reactive<Partial<ProjectItem>>({
 const fetchProjects = async () => {
   loading.value = true
   try {
-    const resp = await request.get('/api/projects')
-    list.value = resp.data.data
+    const resp = await request.get('/api/projects', { params: { page: 1, pageSize: 200 } })
+    list.value = resp.data.data.list || resp.data.data || []
   } finally {
     loading.value = false
   }

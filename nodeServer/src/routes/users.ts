@@ -3,7 +3,7 @@ import { uuid, type User, type UserStatus } from "../db";
 import { respond, respondError, authMiddleware, requireAdmin } from "../middlewares/auth";
 import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
-import { hashPassword } from "../utils";
+import { createDeveloperCodeCandidate, hashPassword } from "../utils";
 import { ROLE_DEVELOPER } from "../constants/roles";
 
 const router = Router();
@@ -12,9 +12,19 @@ router.use(requireAdmin());
 
 const parseRoleIds = (raw: string | null) => (raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : []);
 
+const generateUniqueDeveloperCode = async () => {
+  for (let i = 0; i < 16; i += 1) {
+    const code = createDeveloperCodeCandidate(6);
+    const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE developer_code = ?`, [code]);
+    if (!exists) return code;
+  }
+  throw new Error("生成开发者短码失败");
+};
+
 const mapUserRow = (row: any): User => ({
   id: row.id,
   username: row.username,
+  developerCode: row.developer_code || undefined,
   passwordHash: row.password_hash,
   roleIds: parseRoleIds(row.role_ids || null),
   permissions: [],
@@ -83,14 +93,15 @@ router.post("/", async (req, res) => {
   if (exists) return respondError(res, "用户名已存在");
 
   const id = uuid();
+  const developerCode = await generateUniqueDeveloperCode();
   const now = Date.now();
   const status: UserStatus = req.body?.status === "disabled" ? "disabled" : "active";
 
   await withTransaction(async (conn) => {
     await conn.execute(
-      `INSERT INTO ${table("users")} (id, username, password_hash, status, email, phone, department_id, remark, avatar, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-      [id, username, hashPassword(password), status, email || null, phone || null, departmentId || null, remark || null, now, now]
+      `INSERT INTO ${table("users")} (id, username, developer_code, password_hash, status, email, phone, department_id, remark, avatar, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      [id, username, developerCode, hashPassword(password), status, email || null, phone || null, departmentId || null, remark || null, now, now]
     );
     const requestedRoleIds = Array.isArray(roleIds) ? roleIds : [ROLE_DEVELOPER];
     const uniqueRoleIds = Array.from(new Set((requestedRoleIds as string[]).filter(Boolean)));

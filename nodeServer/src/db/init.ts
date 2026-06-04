@@ -1,4 +1,4 @@
-import { hashPassword } from "../utils";
+import { createDeveloperCodeCandidate, hashPassword } from "../utils";
 import { LEGACY_ROLE_OPS, ROLE_ADMIN, ROLE_DEVELOPER, SYSTEM_ROLE_DEFINITIONS } from "../constants/roles";
 import { execute, query, queryOne } from "./mysql";
 import { TABLE_PREFIX, table } from "./tables";
@@ -8,6 +8,8 @@ export const initDb = async () => {
   await createTables();
   await ensureColumns();
   await ensureProjectNumbers();
+  await ensureUserDeveloperCodes();
+  await ensureProductCreatorUserIds();
   await ensureIndexes();
   await ensureSystemRoles();
   await seedIfEmpty();
@@ -41,6 +43,7 @@ const migratePrefixIfNeeded = async () => {
     "security_policies",
     "products",
     "orders",
+    "withdrawals",
     "notifications",
     "logs",
     "system_config",
@@ -77,6 +80,7 @@ const createTables = async () => {
     `CREATE TABLE IF NOT EXISTS ${table("users")} (
       id VARCHAR(64) PRIMARY KEY,
       username VARCHAR(64) NOT NULL UNIQUE,
+      developer_code VARCHAR(16) NULL,
       password_hash VARCHAR(128) NOT NULL,
       status VARCHAR(16) NOT NULL DEFAULT 'active',
       email VARCHAR(128) NULL,
@@ -184,9 +188,13 @@ const createTables = async () => {
     `CREATE TABLE IF NOT EXISTS ${table("products")} (
       id VARCHAR(64) PRIMARY KEY,
       project_id VARCHAR(64) NOT NULL,
+      creator_user_id VARCHAR(64) NULL,
       name VARCHAR(128) NOT NULL,
       summary VARCHAR(255) NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'published',
+      cover_url VARCHAR(255) NULL,
       allow_anonymous TINYINT NOT NULL DEFAULT 1,
+      addon_mode TINYINT NOT NULL DEFAULT 0,
       min_buy INT NOT NULL DEFAULT 1,
       max_buy INT NOT NULL DEFAULT 5,
       variants JSON NOT NULL,
@@ -200,8 +208,10 @@ const createTables = async () => {
     `CREATE TABLE IF NOT EXISTS ${table("orders")} (
       id VARCHAR(64) PRIMARY KEY,
       product_id VARCHAR(64) NOT NULL,
+      creator_user_id VARCHAR(64) NULL,
       buyer VARCHAR(128) NOT NULL,
       buyer_email VARCHAR(128) NULL,
+      mock_pay_token VARCHAR(64) NULL,
       variant_id VARCHAR(64) NULL,
       variant_label VARCHAR(128) NULL,
       quantity INT NOT NULL,
@@ -209,7 +219,26 @@ const createTables = async () => {
       verify_code VARCHAR(16) NULL,
       delivery_payload JSON NULL,
       status VARCHAR(16) NOT NULL,
+      settlement_status VARCHAR(16) NOT NULL DEFAULT 'unsettled',
+      settle_at BIGINT NULL,
+      paid_at BIGINT NULL,
+      delivered_at BIGINT NULL,
       created_at BIGINT NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
+  );
+
+  await execute(
+    `CREATE TABLE IF NOT EXISTS ${table("withdrawals")} (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'processing',
+      bank_account VARCHAR(255) NOT NULL,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      completed_at BIGINT NULL,
+      INDEX idx_user_created (user_id, created_at),
+      INDEX idx_status_created (status, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
   );
 
@@ -255,10 +284,21 @@ const ensureColumns = async () => {
   await ensureColumn("security_policies", "updated_at", "BIGINT NULL");
   await ensureColumn("projects", "project_no", "BIGINT NULL");
   await ensureColumn("orders", "buyer_email", "VARCHAR(128) NULL");
+  await ensureColumn("orders", "mock_pay_token", "VARCHAR(64) NULL");
   await ensureColumn("orders", "variant_id", "VARCHAR(64) NULL");
   await ensureColumn("orders", "variant_label", "VARCHAR(128) NULL");
   await ensureColumn("orders", "verify_code", "VARCHAR(16) NULL");
   await ensureColumn("orders", "delivery_payload", "JSON NULL");
+  await ensureColumn("orders", "creator_user_id", "VARCHAR(64) NULL");
+  await ensureColumn("orders", "settlement_status", "VARCHAR(16) NOT NULL DEFAULT 'unsettled'");
+  await ensureColumn("orders", "settle_at", "BIGINT NULL");
+  await ensureColumn("orders", "paid_at", "BIGINT NULL");
+  await ensureColumn("orders", "delivered_at", "BIGINT NULL");
+  await ensureColumn("products", "creator_user_id", "VARCHAR(64) NULL");
+  await ensureColumn("products", "status", "VARCHAR(16) NOT NULL DEFAULT 'published'");
+  await ensureColumn("products", "cover_url", "VARCHAR(255) NULL");
+  await ensureColumn("products", "addon_mode", "TINYINT NOT NULL DEFAULT 0");
+  await ensureColumn("users", "developer_code", "VARCHAR(16) NULL");
 };
 
 const ensureColumn = async (tableName: string, column: string, ddl: string) => {
@@ -287,10 +327,42 @@ const ensureProjectNumbers = async () => {
   }
 };
 
+const generateUniqueDeveloperCode = async () => {
+  for (let i = 0; i < 16; i += 1) {
+    const code = createDeveloperCodeCandidate(6);
+    const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE developer_code = ?`, [code]);
+    if (!exists) return code;
+  }
+  throw new Error("生成开发者短码失败");
+};
+
+const ensureUserDeveloperCodes = async () => {
+  const rows = await query<{ id: string }>(
+    `SELECT id FROM ${table("users")} WHERE developer_code IS NULL OR developer_code = '' ORDER BY created_at ASC, id ASC`
+  );
+
+  for (const row of rows) {
+    const code = await generateUniqueDeveloperCode();
+    await execute(`UPDATE ${table("users")} SET developer_code = ? WHERE id = ?`, [code, row.id]);
+  }
+};
+
+const ensureProductCreatorUserIds = async () => {
+  const owner =
+    (await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE username = 'admin' LIMIT 1`)) ||
+    (await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} ORDER BY created_at ASC, id ASC LIMIT 1`));
+  if (!owner?.id) return;
+
+  await execute(`UPDATE ${table("products")} SET creator_user_id = ? WHERE creator_user_id IS NULL OR creator_user_id = ''`, [
+    owner.id,
+  ]);
+};
+
 const ensureIndexes = async () => {
   // 一个项目只能有一条安全策略
   await ensureUniqueIndexIfNoDuplicates("security_policies", "uniq_project_id", ["project_id"]);
   await ensureUniqueIndexIfNoDuplicates("projects", "uniq_project_no", ["project_no"]);
+  await ensureUniqueIndexIfNoDuplicates("users", "uniq_developer_code", ["developer_code"]);
 };
 
 const ensureUniqueIndexIfNoDuplicates = async (tableName: string, indexName: string, columns: string[]) => {
@@ -350,9 +422,9 @@ const seedIfEmpty = async () => {
   const now = Date.now();
 
   await execute(
-    `INSERT INTO ${table("users")} (id, username, password_hash, status, email, phone, department_id, remark, avatar, created_at, updated_at)
-     VALUES ('u-admin','admin',?,'active','admin@example.com','18800000000',NULL,'系统管理员',NULL,?,?)`,
-    [hashPassword("admin123"), now, now]
+    `INSERT INTO ${table("users")} (id, username, developer_code, password_hash, status, email, phone, department_id, remark, avatar, created_at, updated_at)
+     VALUES ('u-admin','admin',? ,?,'active','admin@example.com','18800000000',NULL,'系统管理员',NULL,?,?)`,
+    [createDeveloperCodeCandidate(6), hashPassword("admin123"), now, now]
   );
 
   await execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES ('u-admin', ?)`, [ROLE_ADMIN]);

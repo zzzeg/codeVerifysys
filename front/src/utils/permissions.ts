@@ -5,7 +5,6 @@ export const permissionOptions = [
   { label: '角色配置', value: 'roles' },
   { label: '注册码管理', value: 'codes' },
   { label: '项目管理', value: 'projects' },
-  { label: '商品管理', value: 'products' },
   { label: '自定义数据', value: 'custom-data' },
   { label: '安全策略', value: 'security-policies' },
   { label: '自动发卡', value: 'auto-delivery' },

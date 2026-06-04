@@ -14,6 +14,7 @@ import systemRoutes from "./system";
 import dashboardRoutes from "./dashboard";
 import notificationRoutes from "./notifications";
 import clientRoutes from "./client";
+import settlementRoutes from "./settlements";
 
 const router = Router();
 
@@ -32,5 +33,6 @@ router.use("/system", systemRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/notifications", notificationRoutes);
 router.use("/client", clientRoutes);
+router.use("/settlements", settlementRoutes);
 
 export default router;

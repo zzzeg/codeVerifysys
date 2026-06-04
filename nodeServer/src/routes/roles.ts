@@ -3,6 +3,7 @@ import { uuid, type Role } from "../db";
 import { respond, respondError, authMiddleware, requireAdmin } from "../middlewares/auth";
 import { execute, query, queryOne } from "../db/mysql";
 import { table } from "../db/tables";
+import { getPagination } from "../utils/pagination";
 import {
   ROLE_DEVELOPER,
   SYSTEM_ROLE_DEFINITIONS,
@@ -38,7 +39,9 @@ const mapRoleRow = (row: any): Role => ({
   roleType: SYSTEM_ROLE_IDS.includes(row.id) ? "system" : "extension",
 });
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
+  const { pageSize, offset } = getPagination(req.query as Record<string, any>);
+  const totalRow = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("roles")}`);
   const rows = await query(
     `SELECT * FROM ${table("roles")}
      ORDER BY
@@ -47,9 +50,11 @@ router.get("/", async (_req, res) => {
          WHEN 'role-developer' THEN 2
          ELSE 3
        END,
-       created_at ASC`
+       created_at ASC
+     LIMIT ? OFFSET ?`,
+    [pageSize, offset],
   );
-  return respond(res, rows.map(mapRoleRow));
+  return respond(res, { list: rows.map(mapRoleRow), total: Number(totalRow?.c || 0) });
 });
 
 router.get("/:id", async (req, res) => {

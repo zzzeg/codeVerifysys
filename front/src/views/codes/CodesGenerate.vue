@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
@@ -13,6 +13,11 @@ type GeneratedItem = { code: string; cardType: string; projectName: string; rema
 const projects = ref<ProjectItem[]>([])
 const generated = ref<GeneratedItem[]>([])
 const loading = ref(false)
+const taskId = ref('')
+const taskStatus = ref('')
+const taskProgress = ref(0)
+const taskTotal = ref(0)
+let taskTimer: number | undefined
 const router = useRouter()
 
 const form = reactive({
@@ -33,6 +38,13 @@ const cardTypeOptions = [
   { label: '永久卡', value: 'permanent' },
 ]
 
+const progressPercentage = computed(() => (taskTotal.value ? Math.round((taskProgress.value / taskTotal.value) * 100) : 0))
+
+const clearTaskTimer = () => {
+  if (taskTimer) window.clearInterval(taskTimer)
+  taskTimer = undefined
+}
+
 const fetchProjects = async (showMessage = false) => {
   const resp = await request.get('/api/projects/names')
   if (resp.data.code === 200) {
@@ -50,6 +62,11 @@ const refreshProjects = async (showMessage = false) => {
 
 const handleGenerate = async () => {
   loading.value = true
+  clearTaskTimer()
+  taskId.value = ''
+  taskStatus.value = ''
+  taskProgress.value = 0
+  taskTotal.value = 0
 
   if (form.projectName === '') {
     ElMessage.error('请先选择项目')
@@ -65,6 +82,15 @@ const handleGenerate = async () => {
       remark: form.remark,
       saletype: 'author_generated',
     })
+    if (resp.data.data?.async) {
+      taskId.value = resp.data.data.taskId
+      taskStatus.value = 'running'
+      taskTotal.value = Number(resp.data.data.total || form.count)
+      ElMessage.success('生成任务已创建，请等待完成')
+      pollGenerateTask()
+      taskTimer = window.setInterval(pollGenerateTask, 1200)
+      return
+    }
     const items = resp.data.data.items as any[] | undefined
     if (Array.isArray(items) && items.length) {
       generated.value = items.map((it) => ({
@@ -88,6 +114,33 @@ const handleGenerate = async () => {
   }
 }
 
+const pollGenerateTask = async () => {
+  if (!taskId.value) return
+  const resp = await request.get(`/api/codes/generate/tasks/${taskId.value}`)
+  const data = resp.data.data || {}
+  taskStatus.value = data.status || ''
+  taskProgress.value = Number(data.progress || 0)
+  taskTotal.value = Number(data.total || taskTotal.value || 0)
+  if (data.status === 'failed') {
+    clearTaskTimer()
+    loading.value = false
+    ElMessage.error(data.error || '生成失败')
+    return
+  }
+  if (data.status === 'done') {
+    clearTaskTimer()
+    const items = Array.isArray(data.items) ? data.items : []
+    generated.value = items.map((it: any) => ({
+      code: it.code,
+      cardType: cardTypeOptions.find((item) => item.value === form.cardType)?.label || form.cardType,
+      projectName: it.projectName || '',
+      remark: it.remark,
+    }))
+    loading.value = false
+    ElMessage.success('注册码生成完成')
+  }
+}
+
 const handleExport = () => {
   if (!generated.value.length) {
     ElMessage.info('没有可导出的数据')
@@ -103,6 +156,8 @@ const handleExport = () => {
 }
 
 onMounted(fetchProjects)
+
+onBeforeUnmount(clearTaskTimer)
 </script>
 
 <template>
@@ -125,8 +180,9 @@ onMounted(fetchProjects)
       </el-form-item>
 
       <el-form-item label="购买数量">
-        <el-input-number v-model="form.count" :min="1" />
+        <el-input-number v-model="form.count" :min="1" :max="5000" />
         <span class="hint">张</span>
+        <span class="hint">超过 1000 张将进入后台任务，完成后可下载结果</span>
       </el-form-item>
 
       <el-form-item label="备注">
@@ -139,6 +195,14 @@ onMounted(fetchProjects)
         <el-button v-if="generated.length" plain @click="handleExport">导出注册码</el-button>
       </el-form-item>
     </el-form>
+
+    <div v-if="taskStatus === 'running'" class="task-progress">
+      <div class="task-progress-head">
+        <span>正在生成注册码</span>
+        <strong>{{ taskProgress }} / {{ taskTotal }}</strong>
+      </div>
+      <el-progress :percentage="progressPercentage" />
+    </div>
 
     <el-table v-if="generated.length" :data="generated" border>
       <el-table-column prop="code" label="注册码" />
@@ -169,5 +233,23 @@ onMounted(fetchProjects)
 
 .action-btn {
   box-shadow: none;
+}
+
+.task-progress {
+  max-width: 720px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  background: #f8fbff;
+}
+
+.task-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: #374151;
+  font-size: 14px;
 }
 </style>

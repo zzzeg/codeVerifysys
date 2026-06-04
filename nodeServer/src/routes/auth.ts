@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { SECRET } from "../config";
 import { uuid, type User } from "../db";
 import { respond, respondError, authMiddleware, type AuthRequest } from "../middlewares/auth";
-import { hashPassword, verifyPassword } from "../utils";
+import { createDeveloperCodeCandidate, hashPassword, verifyPassword } from "../utils";
 import { ROLE_DEVELOPER } from "../constants/roles";
 import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
@@ -14,6 +14,15 @@ const router = Router();
 const isEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
 
 const randomEmailCode = () => Math.floor(Math.random() * 900000 + 100000).toString();
+
+const generateUniqueDeveloperCode = async () => {
+  for (let i = 0; i < 16; i += 1) {
+    const code = createDeveloperCodeCandidate(6);
+    const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE developer_code = ?`, [code]);
+    if (!exists) return code;
+  }
+  throw new Error("生成开发者短码失败");
+};
 
 type EmailCodePurpose = "register" | "reset";
 
@@ -126,6 +135,7 @@ router.post("/register", async (req, res) => {
   if (!verified.ok) return respondError(res, verified.message, 400);
 
   const id = uuid();
+  const developerCode = await generateUniqueDeveloperCode();
   const now = Date.now();
 
   await withTransaction(async (conn) => {
@@ -136,9 +146,9 @@ router.post("/register", async (req, res) => {
     if ((used as any)?.affectedRows === 0) throw new Error("验证码已使用或已过期");
 
     await conn.execute(
-      `INSERT INTO ${table("users")} (id, username, password_hash, status, email, phone, department_id, remark, avatar, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, NULL, NULL, NULL, NULL, ?, ?)`,
-      [id, username, hashPassword(password), email || null, now, now]
+      `INSERT INTO ${table("users")} (id, username, developer_code, password_hash, status, email, phone, department_id, remark, avatar, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, NULL, NULL, ?, ?)`,
+      [id, username, developerCode, hashPassword(password), email || null, now, now]
     );
     await conn.execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES (?, ?)`, [id, ROLE_DEVELOPER]);
   });

@@ -63,7 +63,7 @@ const policyProjectIdSet = computed(() => new Set(policyProjectIds.value))
 const availableProjectsForCreate = computed(() => projects.value.filter((project) => !policyProjectIdSet.value.has(project.id)))
 
 const fetchProjects = async () => {
-  const resp = await request.get('/api/projects')
+  const resp = await request.get('/api/projects', { params: { page: 1, pageSize: 200 } })
   const rows = (resp.data.data.list || resp.data.data || []) as any[]
   projects.value = rows.map((row) => ({ id: row.id, name: row.name }))
   if (!form.projectId) form.projectId = projects.value[0]?.id || ''
@@ -120,10 +120,8 @@ const fetchDetail = async () => {
 
   loading.value = true
   try {
-    const resp = await request.get('/api/security-policies', { params: { page: 1, pageSize: 1000 } })
-    const data = resp.data.data as any
-    const rows = Array.isArray(data) ? data : data?.list || []
-    const target = (rows as PolicyItem[]).find((row) => row.id === editingId.value)
+    const resp = await request.get(`/api/security-policies/${editingId.value}`)
+    const target = resp.data.data as PolicyItem | undefined
     if (!target) return
 
     resetForm()
@@ -356,7 +354,6 @@ onMounted(async () => {
 .algo-row {
   display: flex;
   align-items: center;
-  /* gap: 10px; */
   flex-wrap: wrap;
 }
 
