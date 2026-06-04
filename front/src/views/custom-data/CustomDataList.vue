@@ -136,7 +136,8 @@ watch(
       </div>
     </div>
 
-    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer" append-to-body>
+    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer"
+      append-to-body>
       <div class="mobile-filter-body">
         <div class="mobile-filter-scroll">
           <label>项目名称</label>
@@ -157,11 +158,11 @@ watch(
     </el-drawer>
 
     <el-table :data="list" :max-height="tableMaxHeight" v-loading="loading" style="width: 100%">
-      <el-table-column prop="projectName" label="项目名称" width="180" />
-      <el-table-column prop="key" label="Key 值" min-width="180" />
-      <el-table-column prop="value" label="Value 值" min-width="220" show-overflow-tooltip />
+      <el-table-column prop="projectName" label="项目名称" min-width="120" />
+      <el-table-column prop="key" label="Key 值" min-width="100" />
+      <el-table-column prop="value" label="Value 值" min-width="120" show-overflow-tooltip />
       <el-table-column prop="remark" label="备注" min-width="180" show-overflow-tooltip />
-      <el-table-column label="操作" width="180">
+      <el-table-column label="操作" width="140" align="center">
         <template #default="{ row }">
           <el-button size="small" type="primary" @click="router.push(`/custom-data/edit/${row.id}`)">编辑</el-button>
           <el-button size="small" type="danger" @click="removeData(row)">删除</el-button>
@@ -170,15 +171,9 @@ watch(
     </el-table>
 
     <div v-if="total > query.pageSize" class="pager">
-      <el-pagination
-        v-model:current-page="query.page"
-        v-model:page-size="query.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize"
+        :page-sizes="[10, 20, 50, 100]" :total="total" layout="total, sizes, prev, pager, next, jumper"
+        @current-change="handlePageChange" @size-change="handleSizeChange" />
     </div>
   </div>
 </template>

@@ -139,13 +139,15 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer" append-to-body>
+    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer"
+      append-to-body>
       <div class="mobile-filter-body">
         <div class="mobile-filter-scroll">
           <label>商品名称</label>
           <el-input v-model="filterForm.productName" clearable />
           <label>开始时间</label>
-          <el-date-picker v-model="filterForm.orderStartTime" type="date" value-format="YYYY-MM-DD" placeholder="开始时间" />
+          <el-date-picker v-model="filterForm.orderStartTime" type="date" value-format="YYYY-MM-DD"
+            placeholder="开始时间" />
           <label>结束时间</label>
           <el-date-picker v-model="filterForm.orderEndTime" type="date" value-format="YYYY-MM-DD" placeholder="结束时间" />
         </div>
@@ -160,13 +162,14 @@ onBeforeUnmount(() => {
       <el-table-column prop="id" label="订单号" min-width="210" />
       <el-table-column label="商品名称" min-width="140">
         <template #default="{ row }">
-          {{ row.productName || products.find((item) => item.id === row.productId)?.name || row.productId }}
+          {{row.productName || products.find((item) => item.id === row.productId)?.name || row.productId}}
         </template>
       </el-table-column>
-      <el-table-column prop="variantLabel" label="类型" min-width="120" />
+      <el-table-column prop="variantLabel" label="类型" min-width="70" />
       <el-table-column label="单价*数量=金额" min-width="160" align="center">
         <template #default="{ row }">
-          {{ (Number(row.amount) / Math.max(Number(row.quantity) || 1, 1)).toFixed(2) }} * {{ row.quantity }} = {{ Number(row.amount).toFixed(2) }}
+          {{ (Number(row.amount) / Math.max(Number(row.quantity) || 1, 1)).toFixed(2) }} * {{ row.quantity }} = {{
+            Number(row.amount).toFixed(2) }}
         </template>
       </el-table-column>
       <el-table-column label="购买时间" min-width="160" align="center">
@@ -174,12 +177,12 @@ onBeforeUnmount(() => {
           {{ new Date(row.createdAt).toLocaleString('zh-CN') }}
         </template>
       </el-table-column>
-      <el-table-column label="结算" width="100" align="center">
+      <el-table-column label="结算" width="70" align="center">
         <template #default="{ row }">
           {{ row.settlementStatus === 'settled' ? '已结算' : '未结算' }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="100" align="center" fixed="right">
+      <el-table-column label="操作" width="100" align="center">
         <template #default="{ row }">
           <el-button type="primary" size="small" @click="openOrderDetail(row)">详情</el-button>
         </template>
@@ -187,21 +190,16 @@ onBeforeUnmount(() => {
     </el-table>
 
     <div v-if="total > pageSize" class="pager">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+        :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
+        @size-change="handleSizeChange" />
     </div>
 
     <el-dialog v-model="orderDetailDialogVisible" title="订单详情" width="720px">
       <template v-if="currentOrder">
         <div class="order-detail-list">
-          <div><strong>商品名称：</strong>{{ currentOrder.productName || products.find((item) => item.id === currentOrder?.productId)?.name || currentOrder.productId }}</div>
+          <div><strong>商品名称：</strong>{{currentOrder.productName || products.find((item) => item.id ===
+            currentOrder?.productId)?.name || currentOrder.productId}}</div>
           <div><strong>订单号：</strong>{{ currentOrder.id }}</div>
           <div><strong>类型：</strong>{{ currentOrder.variantLabel || '-' }}</div>
           <div><strong>数量：</strong>{{ currentOrder.quantity }}</div>

@@ -132,7 +132,8 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer" append-to-body>
+    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer"
+      append-to-body>
       <div class="mobile-filter-body">
         <div class="mobile-filter-scroll">
           <label>项目名称</label>
@@ -166,39 +167,34 @@ onBeforeUnmount(() => {
           {{ row.projectName || row.projectId }}
         </template>
       </el-table-column>
-      <el-table-column prop="status" label="策略状态" width="120">
+      <el-table-column prop="status" label="策略状态" width="80">
         <template #default="{ row }">
           <el-tag :type="row.status === 'enabled' ? 'success' : 'info'">{{ statusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="mode" label="策略模式" width="120">
+      <el-table-column prop="mode" label="策略模式" width="80">
         <template #default="{ row }">
           {{ modeText(row.mode) }}
         </template>
       </el-table-column>
-      <el-table-column prop="createdAt" label="创建时间">
+      <el-table-column prop="createdAt" label="创建时间" width="160">
         <template #default="{ row }">
           {{ row.createdAt ? formatDateTime(row.createdAt) : '-' }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="180">
+      <el-table-column label="操作" width="140" align="center">
         <template #default="{ row }">
-          <el-button size="small" type="primary" @click="router.push(`/security-policies/edit/${row.id}`)">编辑</el-button>
+          <el-button size="small" type="primary"
+            @click="router.push(`/security-policies/edit/${row.id}`)">编辑</el-button>
           <el-button size="small" type="danger" @click="removePolicy(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
 
     <div v-if="total > pagination.pageSize" class="pager">
-      <el-pagination
-        v-model:current-page="pagination.page"
-        v-model:page-size="pagination.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.pageSize"
+        :page-sizes="[10, 20, 50, 100]" :total="total" layout="total, sizes, prev, pager, next, jumper"
+        @current-change="handlePageChange" @size-change="handleSizeChange" />
     </div>
   </div>
 </template>

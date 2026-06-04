@@ -133,7 +133,8 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer" append-to-body>
+    <el-drawer v-model="filterDrawerOpen" title="筛选条件" direction="rtl" size="86%" class="mobile-filter-drawer"
+      append-to-body>
       <div class="mobile-filter-body">
         <div class="mobile-filter-scroll">
           <label>项目名称</label>
@@ -154,26 +155,20 @@ onBeforeUnmount(() => {
       <el-table-column prop="name" label="项目名称" />
       <el-table-column prop="description" label="公告" />
       <el-table-column prop="remark" label="备注" />
-      <el-table-column label="操作" width="260">
+      <el-table-column label="操作" width="220">
         <template #default="{ row }">
           <el-link type="primary" @click="editProject(row)">编辑</el-link>
-          <el-link type="danger" style="margin-left: 8px" @click="removeProject(row)">删除</el-link>
           <el-link type="primary" style="margin-left: 8px" @click="goToProjectCodes(row)">注册码</el-link>
           <el-link type="primary" style="margin-left: 8px" @click="goToProjectCustomData(row)">自定义数据</el-link>
+          <el-link type="danger" style="margin-left: 8px" @click="removeProject(row)">删除</el-link>
         </template>
       </el-table-column>
     </el-table>
 
     <div v-if="total > pageSize" class="pager">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+        :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
+        @size-change="handleSizeChange" />
     </div>
   </div>
 </template>
