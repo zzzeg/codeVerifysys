@@ -195,13 +195,13 @@ onBeforeUnmount(() => {
         </template>
       </el-table-column>
       <el-table-column prop="name" label="商品名称" min-width="140" align="center" />
-      <el-table-column label="状态" width="80" align="center">
+      <el-table-column label="状态" width="90" align="center">
         <template #default="{ row }">
           <el-tag :type="row.status === 'draft' ? 'info' : 'success'">{{ row.status === 'draft' ? '草稿' : '已发布'
-            }}</el-tag>
+          }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="购买数(最少/最多)" width="140" align="center">
+      <el-table-column label="购买数(最少/最多)" width="160" align="center">
         <template #default="{ row }">
           {{ row.minBuy }}/{{ row.maxBuy }}
         </template>
@@ -219,7 +219,7 @@ onBeforeUnmount(() => {
         </template>
       </el-table-column>
       <el-table-column prop="summary" label="简介" min-width="180" align="center" show-overflow-tooltip />
-      <el-table-column label="操作" width="120" align="center" fixed="right">
+      <el-table-column label="操作" width="120" align="center">
         <template #default="{ row }">
           <div class="table-actions">
             <el-button type="primary" size="small" @click="openEdit(row)">编辑</el-button>
@@ -230,15 +230,9 @@ onBeforeUnmount(() => {
     </el-table>
 
     <div v-if="total > pageSize" class="pager">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+        :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
+        @size-change="handleSizeChange" />
     </div>
   </div>
 </template>

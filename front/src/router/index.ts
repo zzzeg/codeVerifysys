@@ -9,6 +9,8 @@ const ProjectsCreate = () => import('../views/projects/ProjectsCreate.vue')
 const CustomDataForm = () => import('../views/custom-data/CustomDataForm.vue')
 const SecurityPoliciesForm = () => import('../views/security-policies/SecurityPoliciesForm.vue')
 const AutoDeliveryForm = () => import('../views/auto-delivery/AutoDeliveryForm.vue')
+const Settlement = () => import('../views/Settlement.vue')
+const NotificationPublish = () => import('../views/notifications/NotificationPublish.vue')
 
 const hasRoutePermission = (user: { username?: string; roles?: string[]; permissions?: string[] } | null, requiredPermissions?: string[]) => {
   if (!requiredPermissions?.length) return true
@@ -46,6 +48,7 @@ const routes: RouteRecordRaw[] = [
           { path: 'list', name: 'users-list', component: () => import('../views/users/UsersList.vue'), meta: { title: '用户管理' } },
           { path: 'create', name: 'users-create', component: UsersForm, meta: { title: '新增用户' } },
           { path: 'edit/:id', name: 'users-edit', component: UsersForm, meta: { title: '编辑用户' } },
+          { path: 'roles/list', name: 'users-roles-list', component: () => import('../views/roles/RolesList.vue'), meta: { title: '角色配置' } },
         ],
       },
       {
@@ -53,10 +56,10 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/Roles.vue'),
         meta: { requiresAdmin: true },
         children: [
-          { path: '', redirect: '/roles/list' },
-          { path: 'list', name: 'roles-list', component: () => import('../views/roles/RolesList.vue'), meta: { title: '角色配置' } },
-          { path: 'create', redirect: '/roles/list' },
-          { path: 'edit/:id', redirect: '/roles/list' },
+          { path: '', redirect: '/users/roles/list' },
+          { path: 'list', redirect: '/users/roles/list' },
+          { path: 'create', redirect: '/users/roles/list' },
+          { path: 'edit/:id', redirect: '/users/roles/list' },
         ],
       },
       {
@@ -120,14 +123,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/Logs.vue'),
         meta: { requiresAdmin: true },
         children: [
-          { path: '', redirect: '/logs/operation' },
+          { path: '', redirect: '/users/settlements' },
           { path: 'operation', name: 'logs-operation', component: () => import('../views/logs/LogsOperation.vue'), meta: { title: '操作日志' } },
           { path: 'login', name: 'logs-login', component: () => import('../views/logs/LogsLogin.vue'), meta: { title: '登录日志' } },
           { path: 'error', name: 'logs-error', component: () => import('../views/logs/LogsError.vue'), meta: { title: '错误日志' } },
+          { path: '/users/settlements', name: 'system-settlements', component: Settlement, meta: { title: '结算管理' } },
+          { path: '/notifications/publish', name: 'notifications-publish', component: NotificationPublish, meta: { title: '发布通知' } },
         ],
       },
-      { path: 'settlements', name: 'settlements', component: () => import('../views/Settlement.vue'), meta: { title: '结算管理', requiresAdmin: true } },
-      { path: 'notifications', name: 'notifications', component: () => import('../views/Notifications.vue'), meta: { title: '通知中心' } },
+      { path: 'settlements', redirect: '/users/settlements' },
+      { path: 'notifications', name: 'notifications-list', component: () => import('../views/Notifications.vue'), meta: { title: '通知中心', requiresAdmin: true } },
       {
         path: 'profile',
         component: () => import('../views/Profile.vue'),

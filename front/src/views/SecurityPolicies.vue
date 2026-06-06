@@ -65,7 +65,7 @@ const openMobileFilter = () => window.dispatchEvent(new CustomEvent('vs-open-mob
             <h2 class="vs-ref-main-title">{{ currentTitle }}</h2>
           </div>
           <div class="vs-ref-main-body">
-            <router-view />
+            <router-view :key="route.fullPath" />
           </div>
         </section>
       </div>

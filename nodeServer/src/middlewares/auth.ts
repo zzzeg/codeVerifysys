@@ -34,6 +34,13 @@ const loadUserById = async (userId: string): Promise<User | undefined> => {
     department_id: string | null;
     remark: string | null;
     avatar: string | null;
+    real_name: string | null;
+    id_card: string | null;
+    bank_name: string | null;
+    alipay_account: string | null;
+    qq: string | null;
+    address: string | null;
+    real_verified_at: number | null;
   }>(`SELECT * FROM ${table("users")} WHERE id = ?`, [userId]);
   if (!row) return;
 
@@ -78,6 +85,13 @@ const loadUserById = async (userId: string): Promise<User | undefined> => {
     departmentId: row.department_id || undefined,
     remark: row.remark || undefined,
     avatar: row.avatar || undefined,
+    realName: row.real_name || undefined,
+    idCard: row.id_card || undefined,
+    bankName: row.bank_name || undefined,
+    alipayAccount: row.alipay_account || undefined,
+    qq: row.qq || undefined,
+    address: row.address || undefined,
+    realVerifiedAt: row.real_verified_at ? Number(row.real_verified_at) : undefined,
   };
 };
 

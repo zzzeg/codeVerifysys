@@ -1139,7 +1139,7 @@ watch(
         <el-button link type="primary" size="small" @click="handleBatchChangeProject">改项目类型</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangeNote">改备注</el-button>
         <el-button link type="primary" size="small" @click="handleBatchDelete">{{ hasDeletedSelection ? '彻底删除' : '删除'
-        }}</el-button>
+          }}</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecover">恢复</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecharge">续费</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangePassword">重置解绑密码</el-button>
@@ -1155,7 +1155,7 @@ watch(
           @row-click="handleRowClick" @selection-change="handleSelectionChange" style="width: 100%">
           <el-table-column type="selection" width="40" />
           <!-- <el-table-column type="index" width="40" /> -->
-          <el-table-column prop="code" label="注册码" width="280" />
+          <el-table-column prop="code" label="注册码" min-width="260" />
           <el-table-column label="卡类型" min-width="74">
             <template #default="{ row }">
               {{ cardTypeMap[row.cardType] || row.cardType }}
@@ -1169,7 +1169,7 @@ watch(
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="激活时间/到期时间/最后访问时间" min-width="220">
+          <el-table-column label="激活时间/到期时间/最后访问时间" min-width="220" align="center">
             <template #default="{ row }">
               <div class="time-info">
                 <div>{{ formatDateTime(row.activatedAt, 'yyyy-MM-dd') || '未使用' }} / {{ formatDateTime(row.expireAt,
@@ -1198,7 +1198,7 @@ watch(
           </el-table-column>
           <el-table-column label="操作" :min-width="operationColumnWidth">
             <template #default="{ row }">
-              <div class="action-links">
+              <div class="action-links" @touchstart.stop>
                 <el-link v-if="!row.isBound" type="info" disabled>未绑</el-link>
                 <el-link v-else type="primary" size="small" @click.stop="handleUnbind(row)">解绑</el-link>
 
@@ -1347,12 +1347,12 @@ watch(
           <div class="detail-card-item">
             <span>使用状态</span>
             <strong :style="{ color: getStatusColor(currentRow.status) }">{{ getStatusText(currentRow.status)
-            }}</strong>
+              }}</strong>
           </div>
           <div class="detail-card-item">
             <span>在线状态</span>
             <strong :style="{ color: currentRow.isOnline ? '#67c23a' : '#909399' }">{{ currentRow.isOnline ? '在线' : '离线'
-              }}</strong>
+            }}</strong>
           </div>
           <div class="detail-card-item">
             <span>创建时间</span>
@@ -1501,7 +1501,7 @@ watch(
           <div class="import-guide">
             <p>从其它系统导出的注册码数据，可直接按当前选择的分割符导入。</p>
             <p>导入格式支持：注册码{{ getDelimiterLabel(importForm.delimiter) }}激活时间{{ getDelimiterLabel(importForm.delimiter)
-              }}到期时间{{ getDelimiterLabel(importForm.delimiter) }}卡类型。</p>
+            }}到期时间{{ getDelimiterLabel(importForm.delimiter) }}卡类型。</p>
             <p>示例：AAAAAAA{{ importForm.delimiter === '\t' ? ' ' : importForm.delimiter }}2016-01-01 00:00:00{{
               importForm.delimiter === '\t' ? ' ' : importForm.delimiter }}2016-02-01 00:00:00{{ importForm.delimiter
                 ===
@@ -1908,7 +1908,10 @@ v-deep .el-checkbox {
 }
 
 :deep(.el-table .cell) {
-  padding: 0 6px;
+  padding: 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 :deep(.el-table .el-table__cell) {

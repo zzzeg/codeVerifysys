@@ -8,11 +8,11 @@ const router = useRouter()
 const menu = [
   { path: '/users/list', label: '用户列表' },
   { path: '/users/create', label: '新增用户' },
-  { path: '/roles/list', label: '角色配置' },
+  { path: '/users/roles/list', label: '角色配置' },
 ]
 
 const isActive = (path: string) => route.path === path
-const currentSubTitle = computed(() => (route.path.startsWith('/roles') ? '角色配置' : '用户列表'))
+const currentSubTitle = computed(() => (route.path.startsWith('/users/roles') ? '角色配置' : '用户列表'))
 const navigateTo = (path: string) => {
   if (route.path !== path) router.push(path)
 }

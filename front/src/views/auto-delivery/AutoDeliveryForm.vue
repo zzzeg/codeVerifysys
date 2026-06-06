@@ -5,6 +5,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
+import { useUnsavedChangesGuard } from '../../composables/useUnsavedChangesGuard'
 
 interface ProjectItem {
   id: string
@@ -64,6 +65,9 @@ const form = reactive({
   minBuy: 1,
   maxBuy: 10,
   variants: [] as VariantItem[],
+})
+const { resetBaseline, markSaved } = useUnsavedChangesGuard({
+  getSnapshot: () => form,
 })
 
 const validateVariants = (_rule: unknown, value: VariantItem[], callback: (error?: Error) => void) => {
@@ -211,6 +215,7 @@ const saveProduct = async () => {
     ElMessage.success('商品创建成功')
   }
 
+  markSaved()
   await router.push('/auto-delivery/list')
 }
 
@@ -222,11 +227,13 @@ onMounted(async () => {
 
   if (isEdit.value) {
     await fetchProductDetail()
+    resetBaseline()
     return
   }
 
   resetForm()
   addVariantRow()
+  resetBaseline()
 })
 
 onUnmounted(() => {
@@ -347,8 +354,8 @@ onUnmounted(() => {
       </el-form-item>
 
       <el-form-item label=" ">
-        <el-button type="default" @click="router.push('/auto-delivery/list')">返回列表</el-button>
         <el-button type="primary" @click="saveProduct">确认</el-button>
+        <el-button type="default" @click="router.push('/auto-delivery/list')">取消</el-button>
       </el-form-item>
     </el-form>
   </div>

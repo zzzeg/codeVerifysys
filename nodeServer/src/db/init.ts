@@ -88,6 +88,13 @@ const createTables = async () => {
       department_id VARCHAR(64) NULL,
       remark VARCHAR(255) NULL,
       avatar VARCHAR(255) NULL,
+      real_name VARCHAR(64) NULL,
+      id_card VARCHAR(32) NULL,
+      bank_name VARCHAR(64) NULL,
+      alipay_account VARCHAR(128) NULL,
+      qq VARCHAR(32) NULL,
+      address VARCHAR(255) NULL,
+      real_verified_at BIGINT NULL,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
@@ -299,6 +306,13 @@ const ensureColumns = async () => {
   await ensureColumn("products", "cover_url", "VARCHAR(255) NULL");
   await ensureColumn("products", "addon_mode", "TINYINT NOT NULL DEFAULT 0");
   await ensureColumn("users", "developer_code", "VARCHAR(16) NULL");
+  await ensureColumn("users", "real_name", "VARCHAR(64) NULL");
+  await ensureColumn("users", "id_card", "VARCHAR(32) NULL");
+  await ensureColumn("users", "bank_name", "VARCHAR(64) NULL");
+  await ensureColumn("users", "alipay_account", "VARCHAR(128) NULL");
+  await ensureColumn("users", "qq", "VARCHAR(32) NULL");
+  await ensureColumn("users", "address", "VARCHAR(255) NULL");
+  await ensureColumn("users", "real_verified_at", "BIGINT NULL");
 };
 
 const ensureColumn = async (tableName: string, column: string, ddl: string) => {

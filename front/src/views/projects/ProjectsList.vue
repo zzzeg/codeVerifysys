@@ -152,10 +152,10 @@ onBeforeUnmount(() => {
     </el-drawer>
 
     <el-table :data="list" :max-height="tableHeight" v-loading="loading">
-      <el-table-column prop="name" label="项目名称" />
-      <el-table-column prop="description" label="公告" />
-      <el-table-column prop="remark" label="备注" />
-      <el-table-column label="操作" width="220">
+      <el-table-column prop="name" label="项目名称" min-width="100" />
+      <el-table-column prop="description" label="公告" min-width="100" />
+      <el-table-column prop="remark" label="备注" min-width="100" />
+      <el-table-column label="操作" width="220" align="center">
         <template #default="{ row }">
           <el-link type="primary" @click="editProject(row)">编辑</el-link>
           <el-link type="primary" style="margin-left: 8px" @click="goToProjectCodes(row)">注册码</el-link>

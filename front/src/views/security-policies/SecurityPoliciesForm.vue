@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
+import { useUnsavedChangesGuard } from '../../composables/useUnsavedChangesGuard'
 
 interface ProjectOption {
   id: string
@@ -57,6 +58,9 @@ const form = reactive({
       suffixLength: 6,
     },
   },
+})
+const { resetBaseline, markSaved } = useUnsavedChangesGuard({
+  getSnapshot: () => form,
 })
 
 const policyProjectIdSet = computed(() => new Set(policyProjectIds.value))
@@ -175,6 +179,7 @@ const savePolicy = async () => {
   }
 
   ElMessage.success('保存成功')
+  markSaved()
   router.push('/security-policies/list')
 }
 
@@ -182,13 +187,14 @@ onMounted(async () => {
   await Promise.all([fetchProjects(), fetchAlgorithms(), fetchPolicyProjectIds()])
   resetForm()
   await fetchDetail()
+  resetBaseline()
 })
 </script>
 
 <template>
   <div class="policy-form" v-loading="loading">
     <div class="row2">
-      <span class="label">项目名称：</span>
+      <span class="label">项目名称:</span>
       <el-select v-model="form.projectId" filterable style="width: 260px" :disabled="isEdit">
         <el-option label="请选择项目" value="" />
         <el-option v-for="project in (isEdit ? projects : availableProjectsForCreate)" :key="project.id"
@@ -197,14 +203,14 @@ onMounted(async () => {
     </div>
 
     <div class="row2">
-      <span class="label">安全策略状态：</span>
+      <span class="label">安全策略状态:</span>
       <el-switch v-model="form.status" active-value="enabled" inactive-value="disabled" />
       <span class="switch-status-text">{{ form.status === 'enabled' ? '开启' : '关闭' }}</span>
     </div>
 
     <template v-if="form.status === 'enabled'">
       <div class="row2">
-        <span class="label">安全策略模式：</span>
+        <span class="label">安全策略模式:</span>
         <el-radio-group v-model="form.mode">
           <el-radio value="basic">初级</el-radio>
           <el-radio value="advanced">高级</el-radio>
@@ -215,11 +221,11 @@ onMounted(async () => {
         <div class="section-title">用户密钥</div>
         <div class="section-body">
           <el-form label-width="120px">
-            <el-form-item label="用户密钥：">
+            <el-form-item label="用户密钥:">
               <el-input v-model="form.userKey" maxlength="32" show-word-limit style="width: 260px" />
               <span class="help">最长不能超过 32 个字符</span>
             </el-form-item>
-            <el-form-item v-if="form.mode === 'advanced'" label="用户密钥加密：">
+            <el-form-item v-if="form.mode === 'advanced'" label="用户密钥加密:">
               <el-select v-model="form.advanced.userKeyEncrypt" style="width: 260px">
                 <el-option label="AES" value="AES" />
                 <el-option label="DES" value="DES" />
@@ -234,7 +240,7 @@ onMounted(async () => {
           <div class="section-title">验证接口安全策略</div>
           <div class="section-body">
             <el-form label-width="120px">
-              <el-form-item label="通信加密：">
+              <el-form-item label="通信加密:">
                 <el-select v-model="form.basic.verifyAlgo" style="width: 260px">
                   <el-option v-for="algo in algorithms" :key="algo" :label="algo" :value="algo" />
                 </el-select>
@@ -247,7 +253,7 @@ onMounted(async () => {
           <div class="section-title">辅助接口安全策略</div>
           <div class="section-body">
             <el-form label-width="120px">
-              <el-form-item label="通信加密：">
+              <el-form-item label="通信加密:">
                 <el-select v-model="form.basic.assistAlgo" style="width: 260px">
                   <el-option v-for="algo in algorithms" :key="algo" :label="algo" :value="algo" />
                 </el-select>
@@ -263,7 +269,7 @@ onMounted(async () => {
           <div class="section-body">
             <div class="tip-warn">算法标识不能留空，建议使用自定义标识。</div>
             <el-form label-width="100px">
-              <el-form-item label="通信加密：">
+              <el-form-item label="通信加密:">
                 <div class="algo-grid">
                   <div v-for="algo in algoTags" :key="algo" class="algo-row">
                     <span class="algo-name">{{ algo }} 标识</span>
@@ -280,7 +286,7 @@ onMounted(async () => {
           <div class="section-body">
             <div class="tip-warn">算法标识不能留空，建议使用自定义标识。</div>
             <el-form label-width="100px">
-              <el-form-item label="通信加密：">
+              <el-form-item label="通信加密:">
                 <div class="algo-grid">
                   <div v-for="algo in algoTags" :key="algo" class="algo-row">
                     <span class="algo-name">{{ algo }} 标识</span>

@@ -88,7 +88,29 @@ router.get("/", (req: AuthRequest, res) => {
 
 router.put("/", async (req: AuthRequest, res) => {
   const userId = req.user!.id;
-  const { email, phone, remark, avatar, departmentId } = req.body || {};
+  const { email, phone, remark, avatar, departmentId, realName, idCard, bankName, alipayAccount, qq, address } = req.body || {};
+  const hasRealNamePayload = [realName, idCard, bankName, alipayAccount, qq, address].some((value) => typeof value !== "undefined");
+
+  if (hasRealNamePayload && req.user!.realVerifiedAt) {
+    return respondError(res, "已完成实名认证，不能重复修改", 400);
+  }
+
+  const realNameValue = typeof realName === "string" ? realName.trim() : "";
+  const idCardValue = typeof idCard === "string" ? idCard.trim() : "";
+  const bankNameValue = typeof bankName === "string" ? bankName.trim() : "";
+  const alipayAccountValue = typeof alipayAccount === "string" ? alipayAccount.trim() : "";
+  const qqValue = typeof qq === "string" ? qq.trim() : "";
+  const addressValue = typeof address === "string" ? address.trim() : "";
+
+  if (hasRealNamePayload) {
+    if (!realNameValue) return respondError(res, "真实姓名不能为空", 400);
+    if (!idCardValue) return respondError(res, "身份证号不能为空", 400);
+    if (!/^[0-9A-Za-z]{6,32}$/.test(idCardValue)) return respondError(res, "身份证号格式不正确", 400);
+    if (!bankNameValue) return respondError(res, "开户银行或收款方式不能为空", 400);
+    if (!alipayAccountValue) return respondError(res, "收款账号不能为空", 400);
+  }
+
+  const nextRealVerifiedAt = hasRealNamePayload ? Date.now() : req.user!.realVerifiedAt;
 
   await execute(
     `UPDATE ${table("users")}
@@ -97,12 +119,48 @@ router.put("/", async (req: AuthRequest, res) => {
          remark = ?,
          avatar = ?,
          department_id = ?,
+         real_name = ?,
+         id_card = ?,
+         bank_name = ?,
+         alipay_account = ?,
+         qq = ?,
+         address = ?,
+         real_verified_at = ?,
          updated_at = ?
      WHERE id = ?`,
-    [email ?? null, phone ?? null, remark ?? null, avatar ?? null, departmentId ?? null, Date.now(), userId]
+    [
+      email ?? req.user!.email ?? null,
+      phone ?? req.user!.phone ?? null,
+      remark ?? req.user!.remark ?? null,
+      avatar ?? req.user!.avatar ?? null,
+      departmentId ?? req.user!.departmentId ?? null,
+      hasRealNamePayload ? realNameValue : req.user!.realName ?? null,
+      hasRealNamePayload ? idCardValue : req.user!.idCard ?? null,
+      hasRealNamePayload ? bankNameValue : req.user!.bankName ?? null,
+      hasRealNamePayload ? alipayAccountValue : req.user!.alipayAccount ?? null,
+      hasRealNamePayload ? qqValue || null : req.user!.qq ?? null,
+      hasRealNamePayload ? addressValue || null : req.user!.address ?? null,
+      nextRealVerifiedAt ?? null,
+      Date.now(),
+      userId,
+    ]
   );
 
-  const { passwordHash: _pwd, ...safeUser } = { ...req.user!, email, phone, remark, avatar, departmentId };
+  const { passwordHash: _pwd, ...safeUser } = {
+    ...req.user!,
+    email: email ?? req.user!.email,
+    phone: phone ?? req.user!.phone,
+    remark: remark ?? req.user!.remark,
+    avatar: avatar ?? req.user!.avatar,
+    departmentId: departmentId ?? req.user!.departmentId,
+    realName: hasRealNamePayload ? realNameValue : req.user!.realName,
+    idCard: hasRealNamePayload ? idCardValue : req.user!.idCard,
+    bankName: hasRealNamePayload ? bankNameValue : req.user!.bankName,
+    alipayAccount: hasRealNamePayload ? alipayAccountValue : req.user!.alipayAccount,
+    qq: hasRealNamePayload ? qqValue || undefined : req.user!.qq,
+    address: hasRealNamePayload ? addressValue || undefined : req.user!.address,
+    realVerifiedAt: nextRealVerifiedAt,
+  };
   return respond(res, safeUser);
 });
 

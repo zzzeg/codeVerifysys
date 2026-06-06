@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
+import { useUnsavedChangesGuard } from '../../composables/useUnsavedChangesGuard'
 
 const trialModeOptions = {
   enabled: '开启试用模式',
@@ -32,7 +33,17 @@ const form = reactive({
 })
 
 const isTrialModeEnabled = computed(() => form.trialMode === trialModeOptions.enabled)
+const { resetBaseline, markSaved } = useUnsavedChangesGuard({
+  getSnapshot: () => form,
+})
 
+/**
+ * 校验项目试用时间
+ * @param _rule Element Plus 表单规则对象，当前方法不使用
+ * @param value 当前输入的试用时间
+ * @param callback 校验完成回调，传入 Error 表示校验失败
+ * @returns 无返回值，通过 callback 返回校验结果
+ */
 const validateTrialTime = (_rule: unknown, value: number, callback: (error?: Error) => void) => {
   if (!isTrialModeEnabled.value) {
     callback()
@@ -46,6 +57,13 @@ const validateTrialTime = (_rule: unknown, value: number, callback: (error?: Err
   callback()
 }
 
+/**
+ * 校验单台设备试用时间
+ * @param _rule Element Plus 表单规则对象，当前方法不使用
+ * @param value 当前输入的单台设备试用时间
+ * @param callback 校验完成回调，传入 Error 表示校验失败
+ * @returns 无返回值，通过 callback 返回校验结果
+ */
 const validateDeviceTrialTime = (_rule: unknown, value: number, callback: (error?: Error) => void) => {
   if (!isTrialModeEnabled.value) {
     callback()
@@ -59,6 +77,13 @@ const validateDeviceTrialTime = (_rule: unknown, value: number, callback: (error
   callback()
 }
 
+/**
+ * 校验解绑扣除分钟数
+ * @param _rule Element Plus 表单规则对象，当前方法不使用
+ * @param value 当前输入的解绑扣除分钟数
+ * @param callback 校验完成回调，传入 Error 表示校验失败
+ * @returns 无返回值，通过 callback 返回校验结果
+ */
 const validateUnbindDeductMinutes = (_rule: unknown, value: number, callback: (error?: Error) => void) => {
   if (isTrialModeEnabled.value) {
     callback()
@@ -79,6 +104,11 @@ const rules: FormRules<typeof form> = {
   unbindDeductMinutes: [{ validator: validateUnbindDeductMinutes, trigger: 'blur' }],
 }
 
+/**
+ * 将项目详情填充到表单
+ * @param project 项目详情数据
+ * @returns 无返回值，内部更新项目表单字段
+ */
 const applyProject = (project: any) => {
   const config = project?.config && typeof project.config === 'object' ? project.config : {}
   form.name = project?.name || ''
@@ -95,12 +125,47 @@ const applyProject = (project: any) => {
   form.banner = config.banner || ''
 }
 
-const fetchProject = async () => {
-  if (!isEdit.value) return
-  const resp = await request.get(`/api/projects/${editingId.value}`)
-  applyProject(resp.data.data)
+/**
+ * 重置项目表单为新增默认值
+ * @returns 无返回值，内部清空表单并恢复默认配置
+ */
+const resetForm = () => {
+  Object.assign(form, {
+    name: '',
+    trialMode: trialModeOptions.enabled,
+    trialTime: 10,
+    deviceTrialTime: 10,
+    unbindDeductMinutes: 10,
+    bindDevice: true,
+    clientUnbind: true,
+    vip: true,
+    unbindPassword: '',
+    notice: '',
+    remark: '',
+    banner: '',
+  })
+  formRef.value?.clearValidate()
 }
 
+/**
+ * 获取编辑项目详情
+ * @returns 无返回值，编辑模式下加载项目详情，新增模式下重置默认表单
+ */
+const fetchProject = async () => {
+  if (!isEdit.value) {
+    resetForm()
+    resetBaseline()
+    return
+  }
+  const resp = await request.get(`/api/projects/${editingId.value}`)
+  applyProject(resp.data.data)
+  resetBaseline()
+}
+
+/**
+ * 提交项目表单
+ * @returns 无返回值，校验通过后根据模式创建或更新项目
+ */
 const handleSubmit = async () => {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -108,11 +173,13 @@ const handleSubmit = async () => {
   if (isEdit.value) {
     await request.put(`/api/projects/${editingId.value}`, payload)
     ElMessage.success('项目更新成功')
+    markSaved()
     router.push('/projects/list')
     return
   }
   await request.post('/api/projects', payload)
   ElMessage.success('新建项目成功')
+  markSaved()
   router.push('/projects/list')
 }
 
@@ -122,58 +189,58 @@ fetchProject()
 <template>
   <div class="form-shell">
     <el-form ref="formRef" :model="form" :rules="rules" label-width="auto" class="project-form">
-      <el-form-item label="项目名称：" prop="name">
+      <el-form-item label="项目名称:" prop="name">
         <el-input v-model="form.name" placeholder="支持中文、字母、数字" style="width: 320px" />
       </el-form-item>
 
-      <el-form-item label="试用模式：" required>
+      <el-form-item label="试用模式:" required>
         <el-switch v-model="form.trialMode" :active-value="trialModeOptions.enabled"
           :inactive-value="trialModeOptions.disabled" />
         <span class="switch-status-text">{{ isTrialModeEnabled ? '开启' : '关闭' }}</span>
       </el-form-item>
 
       <template v-if="isTrialModeEnabled">
-        <el-form-item label="试用时间：" prop="trialTime">
+        <el-form-item label="试用时间:" prop="trialTime">
           <el-input v-model="form.trialTime" style="width: 120px" />
-          <span class="muted">单位：分钟，最大不超过 14400 分钟</span>
+          <span class="muted">单位:分钟，最大不超过 14400 分钟</span>
         </el-form-item>
 
-        <el-form-item label="单台电脑试用时间：" prop="deviceTrialTime">
+        <el-form-item label="单台电脑试用时间:" prop="deviceTrialTime">
           <el-input v-model="form.deviceTrialTime" style="width: 120px" />
-          <span class="muted">单位：分钟，最大限制时间为 720 分钟</span>
+          <span class="muted">单位:分钟，最大限制时间为 720 分钟</span>
         </el-form-item>
       </template>
 
-      <el-form-item v-else label="解绑扣时：" prop="unbindDeductMinutes">
+      <el-form-item v-else label="解绑扣时:" prop="unbindDeductMinutes">
         <el-input v-model="form.unbindDeductMinutes" style="width: 120px" />
         <span class="muted">单位 分钟，最大解绑扣时为720分钟(半天，12小时)</span>
       </el-form-item>
 
-      <el-form-item label="开启机器码绑定：" required>
+      <el-form-item label="开启机器码绑定:" required>
         <el-switch v-model="form.bindDevice" />
         <span class="switch-status-text">{{ form.bindDevice ? '启用' : '禁用' }}</span>
       </el-form-item>
 
-      <el-form-item label="客户端自己解绑：" required>
+      <el-form-item label="客户端自己解绑:" required>
         <el-switch v-model="form.clientUnbind" />
         <span class="switch-status-text">{{ form.clientUnbind ? '启用' : '禁用' }}</span>
       </el-form-item>
 
-      <el-form-item label="是否顶号：" required>
+      <el-form-item label="是否顶号:" required>
         <el-switch v-model="form.vip" />
         <span class="switch-status-text">{{ form.vip ? '启用' : '禁用' }}</span>
       </el-form-item>
 
-      <el-form-item label="解绑密码：">
+      <el-form-item label="解绑密码:">
         <el-input v-model="form.unbindPassword" style="width: 180px" />
         <span class="muted">当机器码绑定或客户端自己解绑为关闭时，解绑密码无效</span>
       </el-form-item>
 
-      <el-form-item label="项目公告：">
+      <el-form-item label="项目公告:">
         <el-input v-model="form.notice" type="textarea" :rows="3" style="width: 600px" />
       </el-form-item>
 
-      <el-form-item label="项目备注：">
+      <el-form-item label="项目备注:">
         <el-input v-model="form.remark" type="textarea" :rows="3" style="width: 600px" />
       </el-form-item>
 

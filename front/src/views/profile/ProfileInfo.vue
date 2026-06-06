@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { ApiResp } from '../../utils/request'
 import type { UploadFile, UploadUserFile } from 'element-plus'
-import { Avatar as AvatarIcon, Camera, CreditCard, Location, User } from '@element-plus/icons-vue'
+import { Avatar as AvatarIcon, Camera, CreditCard } from '@element-plus/icons-vue'
 import request from '../../utils/request'
 
 const avatarDialogVisible = ref(false)
@@ -14,20 +14,24 @@ const mobileDialogVisible = ref(false)
 const emailFormRef = ref<FormInstance>()
 const mobileFormRef = ref<FormInstance>()
 const pwdFormRef = ref<FormInstance>()
+const realFormRef = ref<FormInstance>()
+const realFormVisible = ref(false)
+const realSubmitting = ref(false)
 
 const profile = reactive({
   username: '',
   email: '',
   phone: '',
   remark: '',
-  realName: '翟恩光',
-  idCard: '412***********107X',
+  realName: '',
+  idCard: '',
   mobileMasked: '186****8535',
   qq: '672813694',
-  bankName: '支付宝',
-  alipayAccount: 'zhai**********.com',
-  address: '广东省地铁金融大厦9楼',
+  bankName: '',
+  alipayAccount: '',
+  address: '',
   avatar: '',
+  realVerifiedAt: 0,
 })
 
 const avatarForm = reactive({ file: null as File | null })
@@ -36,6 +40,14 @@ const avatarPreviewUrl = ref('')
 const pwdForm = reactive({ oldPassword: '', newPassword: '' })
 const emailForm = reactive({ email: '', emailCode: '' })
 const mobileForm = reactive({ mobile: '', mobileCode: '' })
+const realForm = reactive({
+  realName: '',
+  idCard: '',
+  bankName: '',
+  alipayAccount: '',
+  qq: '',
+  address: '',
+})
 const emailRules: FormRules<typeof emailForm> = {
   email: [
     { required: true, whitespace: true, message: '请输入新邮箱', trigger: 'blur' },
@@ -51,10 +63,36 @@ const pwdRules: FormRules<typeof pwdForm> = {
   oldPassword: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
   newPassword: [{ required: true, message: '请输入新密码', trigger: 'blur' }],
 }
+const realRules: FormRules<typeof realForm> = {
+  realName: [
+    { required: true, whitespace: true, message: '请输入真实姓名', trigger: 'blur' },
+    { min: 2, max: 32, message: '真实姓名长度为2-32个字符', trigger: 'blur' },
+  ],
+  idCard: [
+    { required: true, whitespace: true, message: '请输入身份证号', trigger: 'blur' },
+    { pattern: /^[0-9A-Za-z]{6,32}$/, message: '身份证号格式不正确', trigger: 'blur' },
+  ],
+  bankName: [{ required: true, whitespace: true, message: '请输入开户银行或收款方式', trigger: 'blur' }],
+  alipayAccount: [{ required: true, whitespace: true, message: '请输入收款账号', trigger: 'blur' }],
+}
 const emailCountdown = ref(0)
 const mobileCountdown = ref(0)
 let emailTimer: number | undefined
 let mobileTimer: number | undefined
+const isRealVerified = computed(() => Boolean(profile.realVerifiedAt))
+
+/**
+ * 同步实名认证表单数据
+ * @returns 无返回值，内部根据当前个人资料填充实名表单
+ */
+const syncRealForm = () => {
+  realForm.realName = profile.realName || ''
+  realForm.idCard = profile.idCard || ''
+  realForm.bankName = profile.bankName || ''
+  realForm.alipayAccount = profile.alipayAccount || ''
+  realForm.qq = profile.qq || ''
+  realForm.address = profile.address || ''
+}
 
 const startCountdown = (target: 'email' | 'mobile', seconds: number) => {
   const countdown = target === 'email' ? emailCountdown : mobileCountdown
@@ -92,6 +130,8 @@ const clearAvatarPreview = () => {
 const fetchProfile = async () => {
   const resp = await request.get('/api/profile')
   Object.assign(profile, resp.data.data)
+  syncRealForm()
+  realFormVisible.value = false
 }
 
 const openAvatarDialog = () => {
@@ -144,19 +184,36 @@ const openMobileDialog = () => {
   mobileDialogVisible.value = true
 }
 
-const saveProfile = async () => {
-  await request.put('/api/profile', {
-    phone: profile.phone,
-    remark: profile.remark,
-    realName: profile.realName,
-    idCard: profile.idCard,
-    mobileMasked: profile.mobileMasked,
-    qq: profile.qq,
-    bankName: profile.bankName,
-    alipayAccount: profile.alipayAccount,
-    address: profile.address,
-  })
-  ElMessage.success('资料已更新')
+/**
+ * 展开实名认证表单
+ * @returns 无返回值，内部同步当前资料并显示表单
+ */
+const openRealForm = () => {
+  syncRealForm()
+  realFormVisible.value = true
+}
+
+/**
+ * 提交实名认证资料
+ * @returns 无返回值，表单校验通过后保存实名资料并切换为只读状态
+ */
+const submitRealName = async () => {
+  const valid = await realFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  realSubmitting.value = true
+  try {
+    // 1. 提交实名认证资料
+    const resp = await request.put('/api/profile', { ...realForm })
+    // 2. 同步接口返回的用户资料
+    Object.assign(profile, resp.data.data)
+    syncRealForm()
+    // 3. 收起表单并提示实名完成
+    realFormVisible.value = false
+    ElMessage.success('实名认证成功')
+  } finally {
+    realSubmitting.value = false
+  }
 }
 
 const sendEmailCode = async () => {
@@ -220,17 +277,17 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="profile-actions">
-      <el-button @click="openPasswordDialog">修改密码</el-button>
-      <el-button type="primary" @click="saveProfile">保存资料</el-button>
-    </div>
 
     <div class="hero-card">
       <div class="hero-avatar">
         <img v-if="profile.avatar" :src="profile.avatar" alt="avatar" class="avatar-image" />
-        <el-icon v-else class="avatar-icon"><AvatarIcon /></el-icon>
+        <el-icon v-else class="avatar-icon">
+          <AvatarIcon />
+        </el-icon>
         <button type="button" class="avatar-trigger" @click="openAvatarDialog">
-          <el-icon><Camera /></el-icon>
+          <el-icon>
+            <Camera />
+          </el-icon>
         </button>
       </div>
       <div>
@@ -240,10 +297,12 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="profile-block">
-      <div class="block-title">
-        <el-icon><User /></el-icon>
+      <!-- <div class="block-title">
+        <el-icon>
+          <User />
+        </el-icon>
         <span>基本信息</span>
-      </div>
+      </div> -->
       <div class="info-grid">
         <div class="info-item">
           <label>用户名</label>
@@ -251,74 +310,84 @@ onBeforeUnmount(() => {
         </div>
         <div class="info-item">
           <div class="info-item-head">
+            <label>密码</label>
+            <el-button type="primary" size="small" @click="openPasswordDialog">修改</el-button>
+          </div>
+          <div>********</div>
+        </div>
+        <div class="info-item">
+          <div class="info-item-head">
             <label>邮箱</label>
-            <el-button type="primary" @click="openEmailDialog">修改</el-button>
+            <el-button type="primary" size="small" @click="openEmailDialog">修改</el-button>
           </div>
           <div>{{ profile.email || '-' }}</div>
         </div>
         <div class="info-item">
           <div class="info-item-head">
             <label>电话</label>
-            <el-button type="primary" @click="openMobileDialog">修改</el-button>
+            <el-button type="primary" size="small" @click="openMobileDialog">修改</el-button>
           </div>
           <div>{{ profile.mobileMasked || profile.phone || '-' }}</div>
         </div>
-        <div class="info-item">
-          <label>QQ</label>
-          <div>{{ profile.qq || '-' }}</div>
-        </div>
-        <div class="info-item span-2">
-          <div class="info-item-head">
-            <label>
-              <el-icon><Location /></el-icon>
-              地址
-            </label>
-          </div>
-          <div>{{ profile.address || '-' }}</div>
-        </div>
+
       </div>
     </div>
-
     <div class="profile-block">
       <div class="block-title">
-        <el-icon><CreditCard /></el-icon>
+        <el-icon>
+          <CreditCard />
+        </el-icon>
         <span>实名认证信息</span>
       </div>
-      <div class="info-grid">
-        <div class="info-item">
-          <label>真实姓名</label>
-          <div>{{ profile.realName || '-' }}</div>
-        </div>
-        <div class="info-item">
-          <label>身份证号</label>
-          <div>{{ profile.idCard || '-' }}</div>
-        </div>
-        <div class="info-item">
-          <label>开户银行</label>
-          <div>{{ profile.bankName || '-' }}</div>
-        </div>
-        <div class="info-item">
-          <label>支付宝账号</label>
-          <div>{{ profile.alipayAccount || '-' }}</div>
-        </div>
+
+      <div v-if="!isRealVerified && !realFormVisible" class="real-status-card">
+        <el-tag type="warning" effect="plain">未实名</el-tag>
+        <el-button type="primary" @click="openRealForm">实名认证</el-button>
       </div>
+
+      <el-form v-else ref="realFormRef" :model="realForm" :rules="realRules" label-width="auto" class="real-form">
+        <div v-if="isRealVerified" class="real-status-card verified">
+          <el-tag type="success" effect="plain">已实名</el-tag>
+        </div>
+
+        <div class="real-form-grid">
+          <el-form-item label="真实姓名:" prop="realName">
+            <el-input v-model="realForm.realName" :readonly="isRealVerified" placeholder="请输入真实姓名" />
+          </el-form-item>
+          <el-form-item label="身份证号:" prop="idCard">
+            <el-input v-model="realForm.idCard" :readonly="isRealVerified" placeholder="请输入身份证号" />
+          </el-form-item>
+          <el-form-item label="开户银行:" prop="bankName">
+            <el-input v-model="realForm.bankName" :readonly="isRealVerified" placeholder="请输入开户银行或收款方式" />
+          </el-form-item>
+          <el-form-item label="收款账号:" prop="alipayAccount">
+            <el-input v-model="realForm.alipayAccount" :readonly="isRealVerified" placeholder="请输入收款账号" />
+          </el-form-item>
+          <el-form-item label="QQ:" prop="qq">
+            <el-input v-model="realForm.qq" :readonly="isRealVerified" placeholder="请输入QQ" />
+          </el-form-item>
+          <el-form-item label="地址:" prop="address">
+            <el-input v-model="realForm.address" :readonly="isRealVerified" placeholder="请输入联系地址" />
+          </el-form-item>
+        </div>
+
+        <el-form-item v-if="!isRealVerified" label=" ">
+          <div class="form-actions">
+            <el-button type="primary" :loading="realSubmitting" @click="submitRealName">提交认证</el-button>
+            <el-button @click="realFormVisible = false">取消</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
     </div>
 
     <el-dialog v-model="avatarDialogVisible" title="修改头像" width="420px" destroy-on-close append-to-body>
-      <el-upload
-        class="avatar-upload"
-        :class="{ 'has-file': avatarFileList.length > 0 }"
-        :auto-upload="false"
-        :file-list="avatarFileList"
-        list-type="picture-card"
-        :show-file-list="true"
-        :limit="1"
-        accept="image/*"
-        :on-exceed="handleAvatarExceed"
-        :on-remove="handleAvatarRemove"
-        :on-change="(uploadFile: UploadFile) => handleAvatarChange(uploadFile.raw as File)"
-      >
-        <el-icon v-if="avatarFileList.length === 0"><Camera /></el-icon>
+      <el-upload class="avatar-upload" :class="{ 'has-file': avatarFileList.length > 0 }" :auto-upload="false"
+        :file-list="avatarFileList" list-type="picture-card" :show-file-list="true" :limit="1" accept="image/*"
+        :on-exceed="handleAvatarExceed" :on-remove="handleAvatarRemove"
+        :on-change="(uploadFile: UploadFile) => handleAvatarChange(uploadFile.raw as File)">
+        <el-icon v-if="avatarFileList.length === 0">
+          <Camera />
+        </el-icon>
       </el-upload>
       <template #footer>
         <el-button @click="avatarDialogVisible = false">取消</el-button>
@@ -332,7 +401,9 @@ onBeforeUnmount(() => {
         <el-form-item label="验证码" prop="emailCode">
           <div class="code-row">
             <el-input v-model="emailForm.emailCode" placeholder="请输入验证码" />
-            <el-button :disabled="emailCountdown > 0" @click="sendEmailCode">{{ emailCountdown > 0 ? `${emailCountdown}s` : '获取验证码' }}</el-button>
+            <el-button :disabled="emailCountdown > 0" @click="sendEmailCode">{{ emailCountdown > 0 ?
+              `${emailCountdown}s` :
+              '获取验证码' }}</el-button>
           </div>
         </el-form-item>
       </el-form>
@@ -344,11 +415,12 @@ onBeforeUnmount(() => {
 
     <el-dialog v-model="mobileDialogVisible" title="修改手机号" width="460px" destroy-on-close append-to-body>
       <el-form ref="mobileFormRef" :model="mobileForm" :rules="mobileRules" label-width="92px">
-        <el-form-item label="新手机号" prop="mobile"><el-input v-model="mobileForm.mobile" /></el-form-item>
+        <el-form-item label="新手机号" prop="mobile"><el-input disabled v-model="mobileForm.mobile" /></el-form-item>
         <el-form-item label="验证码" prop="mobileCode">
           <div class="code-row">
             <el-input v-model="mobileForm.mobileCode" placeholder="请输入验证码" />
-            <el-button :disabled="mobileCountdown > 0" @click="sendMobileCode">{{ mobileCountdown > 0 ? `${mobileCountdown}s` : '获取验证码' }}</el-button>
+            <el-button :disabled="mobileCountdown > 0" @click="sendMobileCode">{{ mobileCountdown > 0 ?
+              `${mobileCountdown}s` : '获取验证码' }}</el-button>
           </div>
         </el-form-item>
       </el-form>
@@ -360,8 +432,10 @@ onBeforeUnmount(() => {
 
     <el-dialog v-model="passwordDialogVisible" title="修改密码" width="420px" destroy-on-close append-to-body>
       <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="92px">
-        <el-form-item label="原密码" prop="oldPassword"><el-input v-model="pwdForm.oldPassword" type="password" show-password /></el-form-item>
-        <el-form-item label="新密码" prop="newPassword"><el-input v-model="pwdForm.newPassword" type="password" show-password /></el-form-item>
+        <el-form-item label="原密码" prop="oldPassword"><el-input v-model="pwdForm.oldPassword" type="password"
+            show-password /></el-form-item>
+        <el-form-item label="新密码" prop="newPassword"><el-input v-model="pwdForm.newPassword" type="password"
+            show-password /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="passwordDialogVisible = false">取消</el-button>
@@ -372,20 +446,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.profile-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
 .hero-card {
   display: flex;
   align-items: center;
   gap: 16px;
   padding-bottom: 16px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid #ebeef5;
+  /* margin-bottom: 16px; */
+  /* border-bottom: 1px solid #ebeef5; */
 }
 
 .hero-avatar {
@@ -441,7 +508,7 @@ onBeforeUnmount(() => {
   color: #6b7280;
 }
 
-.profile-block + .profile-block {
+.profile-block+.profile-block {
   margin-top: 18px;
 }
 
@@ -466,7 +533,7 @@ onBeforeUnmount(() => {
 }
 
 .info-item {
-  padding: 14px;
+  padding: 10px 14px;
   border: 1px solid #ebeef5;
   border-radius: 4px;
   background: #f8fafc;
@@ -484,11 +551,48 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 8px;
 }
 
-.span-2 {
-  grid-column: 1 / -1;
+.real-status-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #f3d19e;
+  border-radius: 4px;
+  background: #fdf6ec;
+}
+
+.real-status-card.verified {
+  justify-content: flex-start;
+  margin-bottom: 14px;
+  border-color: #b3e19d;
+  background: #f0f9eb;
+}
+
+.real-form {
+  width: 100%;
+}
+
+.real-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.real-form :deep(.el-input.is-disabled .el-input__wrapper),
+.real-form :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px #dcdfe6 inset;
+}
+
+.real-form :deep(.el-input__inner[readonly]) {
+  cursor: default;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .code-row {
@@ -504,11 +608,19 @@ onBeforeUnmount(() => {
 
 @media (max-width: 980px) {
   .info-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .span-2 {
     grid-column: auto;
+  }
+
+  .real-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .real-status-card {
+    align-items: flex-start;
   }
 }
 </style>

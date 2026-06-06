@@ -54,7 +54,7 @@ const saveRole = async () => {
     ElMessage.success('创建成功')
   }
 
-  router.push('/roles/list')
+  router.push('/users/roles/list')
 }
 
 onMounted(fetchDetail)
@@ -87,7 +87,7 @@ onMounted(fetchDetail)
         </el-select>
       </el-form-item>
       <el-form-item>
-        <el-button @click="router.push('/roles/list')">返回列表</el-button>
+        <el-button @click="router.push('/users/roles/list')">返回列表</el-button>
         <el-button type="primary" @click="saveRole">保存</el-button>
       </el-form-item>
     </el-form>

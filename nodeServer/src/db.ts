@@ -19,6 +19,13 @@ export interface User {
   departmentId?: string;
   remark?: string;
   avatar?: string;
+  realName?: string;
+  idCard?: string;
+  bankName?: string;
+  alipayAccount?: string;
+  qq?: string;
+  address?: string;
+  realVerifiedAt?: number;
 }
 
 export interface Role {

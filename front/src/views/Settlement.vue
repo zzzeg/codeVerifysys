@@ -127,39 +127,33 @@ onMounted(async () => {
     </div>
 
     <el-table :data="orders" v-loading="loading" @selection-change="(rows: SettlementOrder[]) => selectedRows = rows">
-      <el-table-column type="selection" width="48" />
-      <el-table-column prop="id" label="订单号" min-width="210" />
-      <el-table-column prop="productName" label="商品" min-width="140" />
-      <el-table-column prop="creatorUsername" label="开发者" min-width="120" />
-      <el-table-column prop="buyerEmail" label="买家邮箱" min-width="180" />
-      <el-table-column label="金额" width="110">
+      <el-table-column type="selection" width="40" />
+      <el-table-column prop="id" label="订单号" min-width="220" align="center" />
+      <el-table-column prop="productName" label="商品" min-width="140" align="center" />
+      <el-table-column prop="creatorUsername" label="开发者" min-width="120" align="center" />
+      <el-table-column prop="buyerEmail" label="买家邮箱" min-width="180" align="center" />
+      <el-table-column label="金额" min-width="110" align="center">
         <template #default="{ row }">￥{{ Number(row.amount || 0).toFixed(2) }}</template>
       </el-table-column>
-      <el-table-column label="结算状态" width="110">
+      <el-table-column label="结算状态" width="110" align="center">
         <template #default="{ row }">
           <el-tag :type="row.settlementStatus === 'settled' ? 'success' : 'warning'">
             {{ row.settlementStatus === 'settled' ? '已结算' : '未结算' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="应结算时间" min-width="170">
+      <el-table-column label="应结算时间" min-width="170" align="center">
         <template #default="{ row }">{{ formatTime(row.settleAt) }}</template>
       </el-table-column>
-      <el-table-column label="发货时间" min-width="170">
+      <el-table-column label="发货时间" min-width="170" align="center">
         <template #default="{ row }">{{ formatTime(row.deliveredAt) }}</template>
       </el-table-column>
     </el-table>
 
     <div v-if="total > pageSize" class="pager">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+        :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
+        @size-change="handleSizeChange" />
     </div>
   </div>
 </template>
@@ -178,5 +172,12 @@ onMounted(async () => {
 .filter-select,
 .filter-input {
   width: 200px;
+}
+
+:deep(.el-table .cell) {
+  padding: 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

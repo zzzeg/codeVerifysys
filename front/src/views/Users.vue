@@ -9,24 +9,24 @@ const router = useRouter()
 const menu = [
   { path: '/users/list', label: '用户列表' },
   { path: '/users/create', label: '新增用户' },
-  { path: '/roles/list', label: '角色配置' },
+  { path: '/users/roles/list', label: '角色配置' },
 ]
 
 const currentTitle = computed(() => {
   if (route.path === '/users/create') return '新增用户'
   if (route.path.startsWith('/users/edit/')) return '编辑用户'
-  if (route.path.startsWith('/roles')) return '角色配置'
+  if (route.path.startsWith('/users/roles')) return '角色配置'
   return '用户管理'
 })
 const currentSubTitle = computed(() => {
   if (route.path === '/users/create') return '新增用户'
   if (route.path.startsWith('/users/edit/')) return '编辑用户'
-  if (route.path.startsWith('/roles')) return '角色配置'
+  if (route.path.startsWith('/users/roles')) return '角色配置'
   return '用户列表'
 })
 const hasMobileFilter = computed(() => route.path === '/users/list')
 
-const isActive = (path: string) => route.path === path
+const isActive = (path: string) => route.path === path || (path === '/users/roles/list' && route.path.startsWith('/users/roles'))
 
 const navigateTo = (path: string) => {
   if (route.path !== path) router.push(path)
@@ -68,7 +68,7 @@ const openMobileFilter = () => window.dispatchEvent(new CustomEvent('vs-open-mob
             <h2 class="vs-ref-main-title">{{ currentTitle }}</h2>
           </div>
           <div class="vs-ref-main-body">
-            <router-view />
+            <router-view :key="route.fullPath" />
           </div>
         </section>
       </div>

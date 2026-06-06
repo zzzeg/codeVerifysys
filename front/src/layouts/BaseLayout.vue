@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Collection,
@@ -7,7 +7,7 @@ import {
   Document,
   Key,
   Lock,
-  Message,
+  Bell,
   Menu,
   ArrowDown,
   ArrowRight,
@@ -18,7 +18,13 @@ import {
   User as AvatarIcon,
   UserFilled,
 } from '@element-plus/icons-vue'
+import {
+  getNotifications,
+  getUnreadNotifications,
+  markNotificationAsRead,
+} from '../api/notifications'
 import { useAuthStore } from '../store/auth'
+import type { NotificationItem } from '../types/notification'
 
 interface NavItem {
   path: string
@@ -34,6 +40,15 @@ const router = useRouter()
 const auth = useAuthStore()
 const mobileMenuOpen = ref(false)
 const expandedMobileBasePath = ref('')
+const notificationDialogVisible = ref(false)
+const notificationLoading = ref(false)
+const notificationLoadingMore = ref(false)
+const notificationList = ref<NotificationItem[]>([])
+const notificationPage = ref(1)
+const notificationPageSize = 10
+const notificationTotal = ref(0)
+const activeNotificationId = ref('')
+const unreadCount = ref(0)
 
 const currentUsername = computed(() => auth.currentUser?.username || '管理员')
 const currentRoles = computed(() => auth.currentUser?.roles || [])
@@ -41,6 +56,7 @@ const currentPermissions = computed(() => auth.currentUser?.permissions || [])
 const isSuperAdmin = computed(
   () => currentRoles.value.includes('role-admin') || currentPermissions.value.includes('*') || currentUsername.value === 'admin',
 )
+const hasMoreNotifications = computed(() => notificationList.value.length < notificationTotal.value)
 const hasAccess = (permissions?: string[]) => {
   if (!permissions?.length) return true
   if (isSuperAdmin.value) return true
@@ -81,40 +97,182 @@ const secondaryMenuMap: Record<string, NavItem[]> = {
   '/users': [
     { path: '/users/list', basePath: '/users/list', label: '用户列表', icon: UserFilled },
     { path: '/users/create', basePath: '/users/create', label: '新增用户', icon: UserFilled },
+    { path: '/users/roles/list', basePath: '/users/roles', label: '角色配置', icon: Key },
   ],
   '/logs': [
+    { path: '/users/settlements', basePath: '/users/settlements', label: '结算管理', icon: SetUp },
+    { path: '/notifications/publish', basePath: '/notifications/publish', label: '发布通知', icon: Bell },
     { path: '/logs/operation', basePath: '/logs/operation', label: '操作日志', icon: Document },
     { path: '/logs/login', basePath: '/logs/login', label: '登录日志', icon: Document },
     { path: '/logs/error', basePath: '/logs/error', label: '错误日志', icon: Document },
   ],
+  '/profile': [
+    { path: '/profile/dashboard', basePath: '/profile/dashboard', label: '数据看板', icon: DataAnalysis },
+    { path: '/profile/info', basePath: '/profile/info', label: '个人信息', icon: AvatarIcon },
+    { path: '/profile/finance', basePath: '/profile/finance', label: '财务管理', icon: Tickets },
+  ],
 }
+
+const profileMenu: NavItem[] = [
+  { path: '/profile/dashboard', basePath: '/profile', label: '个人中心', icon: AvatarIcon },
+]
 
 const manageMenu = computed<NavItem[]>(() => {
   if (!isSuperAdmin.value) return []
 
   return [
     { path: '/users/list', basePath: '/users', label: '用户管理', icon: UserFilled, adminOnly: true },
-    { path: '/roles/list', basePath: '/roles', label: '角色配置', icon: Key, adminOnly: true },
-    { path: '/settlements', basePath: '/settlements', label: '结算管理', icon: SetUp, adminOnly: true },
-    { path: '/logs/operation', basePath: '/logs', label: '全站日志', icon: Document, adminOnly: true },
+    { path: '/users/settlements', basePath: '/logs', label: '系统管理', icon: Document, adminOnly: true },
   ]
 })
 
-const mobileMenu = computed(() => [...primaryMenu.value, ...manageMenu.value])
+const mobileMenu = computed(() => [...primaryMenu.value, ...manageMenu.value, ...profileMenu])
 const activeMobileBasePath = computed(() => mobileMenu.value.find((item) => isActive(item.path, item.basePath))?.basePath || '')
 const getSecondaryMenu = (item: NavItem) =>
   expandedMobileBasePath.value === item.basePath ? secondaryMenuMap[item.basePath] || [] : []
 
+/**
+ * 判断当前路径是否属于系统管理模块
+ * @returns 返回当前页面是否应归属到系统管理菜单
+ */
+const isSystemManagePath = () =>
+  route.path.startsWith('/logs/') || route.path === '/users/settlements' || route.path === '/notifications/publish'
+
+/**
+ * 判断菜单项是否处于选中状态
+ * @param path 菜单默认跳转路径
+ * @param basePath 菜单基础路径，用于匹配同模块子页面
+ * @returns 返回当前路由是否匹配菜单项
+ */
 const isActive = (path: string, basePath?: string) => {
   if (route.path === path) return true
+  if (basePath === '/logs' && isSystemManagePath()) return true
+  if (isSystemManagePath()) return false
   return basePath ? route.path === basePath || route.path.startsWith(`${basePath}/`) : false
 }
 
+/**
+ * 跳转到指定页面
+ * @param path 目标页面路径
+ * @returns 无返回值，路径变化时触发路由跳转
+ */
 const navigateTo = (path: string) => {
   mobileMenuOpen.value = false
   if (route.path !== path) router.push(path)
 }
 
+/**
+ * 格式化通知时间
+ * @param value 通知创建时间戳
+ * @returns 返回中文本地化时间文本
+ */
+const formatNotificationTime = (value: number) => new Date(value).toLocaleString('zh-CN', { hour12: false })
+
+/**
+ * 获取通知类型展示文本
+ * @param category 通知类型编码
+ * @returns 返回通知类型中文文本
+ */
+const getNotificationCategoryText = (category: string) => {
+  const map: Record<string, string> = {
+    system: '系统',
+    todo: '待办',
+    order: '订单',
+    settlement: '结算',
+  }
+  return map[category] || category
+}
+
+/**
+ * 获取当前用户未读通知数量
+ * @returns 无返回值，内部更新未读数量状态
+ */
+const fetchUnreadCount = async () => {
+  const resp = await getUnreadNotifications()
+  unreadCount.value = Array.isArray(resp.data.data) ? resp.data.data.length : 0
+}
+
+/**
+ * 获取通知列表
+ * @param reset 是否重置为第一页重新加载
+ * @returns 无返回值，内部维护通知列表、分页和展开状态
+ */
+const fetchNotifications = async (reset = false) => {
+  if (notificationLoading.value || notificationLoadingMore.value) return
+  if (!reset && !hasMoreNotifications.value) return
+
+  const nextPage = reset ? 1 : notificationPage.value
+  if (reset) notificationLoading.value = true
+  else notificationLoadingMore.value = true
+
+  try {
+    const resp = await getNotifications({ page: nextPage, pageSize: notificationPageSize })
+    const data = resp.data.data || { list: [], total: 0 }
+    const rows = data.list || []
+    notificationTotal.value = Number(data.total || 0)
+    notificationList.value = reset ? rows : notificationList.value.concat(rows)
+    notificationPage.value = nextPage + 1
+    if (!activeNotificationId.value && notificationList.value[0]) {
+      activeNotificationId.value = notificationList.value[0].id
+      await markNotificationRead(notificationList.value[0])
+    }
+  } finally {
+    notificationLoading.value = false
+    notificationLoadingMore.value = false
+  }
+}
+
+/**
+ * 打开通知弹窗
+ * @returns 无返回值，打开后加载第一页通知并刷新未读数量
+ */
+const openNotificationDialog = async () => {
+  notificationDialogVisible.value = true
+  activeNotificationId.value = ''
+  await fetchNotifications(true)
+  await fetchUnreadCount()
+}
+
+/**
+ * 处理通知弹窗滚动加载
+ * @param event 滚动事件对象
+ * @returns 无返回值，滚动到底部附近时拉取下一页
+ */
+const handleNotificationScroll = (event: Event) => {
+  const target = event.target as HTMLElement
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 48) {
+    fetchNotifications()
+  }
+}
+
+/**
+ * 标记指定通知为已读
+ * @param row 通知行数据
+ * @returns 无返回值，后端成功后同步本地已读状态
+ */
+const markNotificationRead = async (row?: NotificationItem) => {
+  if (!row || row.read) return
+  await markNotificationAsRead(row.id)
+  row.read = true
+  unreadCount.value = Math.max(0, unreadCount.value - 1)
+}
+
+/**
+ * 处理折叠面板展开变化
+ * @param value 当前展开的通知ID
+ * @returns 无返回值，展开通知时自动标记已读
+ */
+const handleNotificationActiveChange = async (value: string | string[]) => {
+  const id = Array.isArray(value) ? value[0] : value
+  if (!id) return
+  await markNotificationRead(notificationList.value.find((item) => item.id === id))
+}
+
+/**
+ * 处理移动端一级菜单点击
+ * @param item 当前点击的菜单项
+ * @returns 无返回值，有二级菜单时展开或折叠，无二级菜单时直接跳转
+ */
 const handleMobilePrimaryClick = (item: NavItem) => {
   const children = secondaryMenuMap[item.basePath] || []
   if (!children.length) {
@@ -125,11 +283,17 @@ const handleMobilePrimaryClick = (item: NavItem) => {
   expandedMobileBasePath.value = expandedMobileBasePath.value === item.basePath ? '' : item.basePath
 }
 
+/**
+ * 退出当前登录状态
+ * @returns 无返回值，清理登录状态后跳转到登录页
+ */
 const handleLogout = () => {
   auth.logout()
   mobileMenuOpen.value = false
   router.push('/login')
 }
+
+onMounted(fetchUnreadCount)
 
 watch(
   () => route.fullPath,
@@ -163,7 +327,13 @@ watch(
         </nav>
 
         <div class="toolbar">
-          <el-dropdown trigger="click">
+          <el-badge :value="unreadCount" :hidden="unreadCount <= 0" :max="99" @click="openNotificationDialog">
+            <el-icon :size="18">
+              <Bell />
+            </el-icon>
+          </el-badge>
+
+          <el-dropdown class="user-dropdown" trigger="click">
             <span class="user-badge">
               <el-icon :size="16">
                 <AvatarIcon />
@@ -177,12 +347,6 @@ watch(
                     <AvatarIcon />
                   </el-icon>
                   个人中心
-                </el-dropdown-item>
-                <el-dropdown-item @click="navigateTo('/notifications')">
-                  <el-icon>
-                    <Message />
-                  </el-icon>
-                  通知中心
                 </el-dropdown-item>
                 <el-dropdown-item v-for="item in manageMenu" :key="item.path" @click="navigateTo(item.path)">
                   <el-icon>
@@ -236,20 +400,6 @@ watch(
             </button>
           </div>
         </template>
-        <button type="button" class="mobile-link" :class="{ active: route.path.startsWith('/profile') }"
-          @click="navigateTo('/profile/dashboard')">
-          <el-icon>
-            <AvatarIcon />
-          </el-icon>
-          <span>个人中心</span>
-        </button>
-        <button type="button" class="mobile-link" :class="{ active: route.path === '/notifications' }"
-          @click="navigateTo('/notifications')">
-          <el-icon>
-            <Message />
-          </el-icon>
-          <span>通知中心</span>
-        </button>
         <button type="button" class="mobile-link danger" @click="handleLogout">
           <el-icon>
             <SwitchButton />
@@ -264,6 +414,32 @@ watch(
         <router-view />
       </section>
     </main>
+
+    <el-dialog v-model="notificationDialogVisible" title="通知中心" width="640px" class="notification-dialog"
+      destroy-on-close append-to-body align-center>
+      <div class="notification-scroll" v-loading="notificationLoading" @scroll="handleNotificationScroll">
+        <el-empty v-if="!notificationLoading && !notificationList.length" description="暂无通知" />
+        <el-collapse v-else v-model="activeNotificationId" accordion class="notification-collapse"
+          @change="handleNotificationActiveChange">
+          <el-collapse-item v-for="item in notificationList" :key="item.id" :name="item.id">
+            <template #title>
+              <div class="notification-title">
+                <span class="notice-dot" :class="{ read: item.read }" />
+                <span class="notification-title-text">{{ item.title }}</span>
+                <el-tag size="small" :type="item.read ? 'info' : 'warning'">{{ item.read ? '已读' : '未读' }}</el-tag>
+              </div>
+            </template>
+            <div class="notification-meta">
+              <span>{{ getNotificationCategoryText(item.category) }}</span>
+              <span>{{ formatNotificationTime(item.createdAt) }}</span>
+            </div>
+            <div class="notification-content">{{ item.content }}</div>
+          </el-collapse-item>
+        </el-collapse>
+        <div v-if="notificationLoadingMore" class="notification-loading-more">加载中...</div>
+        <div v-else-if="notificationList.length && !hasMoreNotifications" class="notification-finished">没有更多通知了</div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -383,6 +559,39 @@ watch(
   gap: 12px;
 }
 
+.notice-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(229, 231, 235, 0.8);
+  border-radius: 12px;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  color: #303133;
+  cursor: pointer;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.04);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.notice-button:hover {
+  background: rgba(243, 244, 246, 1);
+  color: #2563eb;
+}
+
+.el-badge {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.notice-button :deep(.el-badge__content) {
+  top: 4px;
+  right: 4px;
+}
+
 .user-badge {
   display: inline-flex;
   align-items: center;
@@ -454,6 +663,126 @@ watch(
   font-weight: 700;
 }
 
+.mobile-notice-count {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+:global(.notification-dialog.el-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  max-height: 80dvh;
+  margin: auto !important;
+  overflow: auto;
+}
+
+:global(.notification-dialog .el-dialog__header) {
+  flex: 0 0 auto;
+}
+
+:global(.notification-dialog .el-dialog__body) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  padding-top: 12px;
+}
+
+.notification-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.notification-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+:deep(.el-collapse) {
+  border: none;
+}
+
+.notification-title {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+}
+
+.notice-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: #f56c6c;
+}
+
+.notice-dot.read {
+  background: #c0c4cc;
+}
+
+.notification-title-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #303133;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.notification-content {
+  color: #303133;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notification-loading-more,
+.notification-finished {
+  padding: 12px 0 4px;
+  color: #909399;
+  font-size: 12px;
+  text-align: center;
+}
+
 @media (max-width: 1180px) {
   .brand {
     min-width: 176px;
@@ -519,16 +848,18 @@ watch(
   .mobile-link {
     border: none;
     border-radius: 4px;
-    min-height: 38px;
-    padding: 9px 12px;
+    min-height: 42px;
+    padding: 10px 12px;
     display: flex;
     align-items: center;
     gap: 9px;
     background: transparent;
     color: #606266;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
     text-align: left;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(64, 158, 255, 0.14);
 
     &.expanded span {
       font-weight: 600;
@@ -569,11 +900,11 @@ watch(
   }
 
   .mobile-link.secondary {
-    min-height: 32px;
-    padding: 7px 10px;
+    min-height: 36px;
+    padding: 8px 10px;
     background: transparent;
     color: #6b7280;
-    font-size: 13px;
+    font-size: 14px;
     box-shadow: none;
   }
 

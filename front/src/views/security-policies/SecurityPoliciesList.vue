@@ -162,22 +162,22 @@ onBeforeUnmount(() => {
     </el-drawer>
 
     <el-table :data="list" :max-height="tableMaxHeight" v-loading="loading" style="width: 100%">
-      <el-table-column prop="projectName" label="项目名称">
+      <el-table-column prop="projectName" label="项目名称" min-width="100">
         <template #default="{ row }">
           {{ row.projectName || row.projectId }}
         </template>
       </el-table-column>
-      <el-table-column prop="status" label="策略状态" width="80">
+      <el-table-column prop="status" label="策略状态" min-width="90">
         <template #default="{ row }">
           <el-tag :type="row.status === 'enabled' ? 'success' : 'info'">{{ statusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="mode" label="策略模式" width="80">
+      <el-table-column prop="mode" label="策略模式" min-width="90">
         <template #default="{ row }">
           {{ modeText(row.mode) }}
         </template>
       </el-table-column>
-      <el-table-column prop="createdAt" label="创建时间" width="160">
+      <el-table-column prop="createdAt" label="创建时间" min-width="180" align="center">
         <template #default="{ row }">
           {{ row.createdAt ? formatDateTime(row.createdAt) : '-' }}
         </template>

@@ -71,7 +71,9 @@ onMounted(fetchDashboard)
 
     <div class="profile-block">
       <div class="block-title">
-        <el-icon><CreditCard /></el-icon>
+        <el-icon>
+          <CreditCard />
+        </el-icon>
         <span>注册码状态分布</span>
       </div>
       <el-table :data="dashboard.codeStats">
@@ -129,7 +131,7 @@ onMounted(fetchDashboard)
 
 @media (max-width: 980px) {
   .dashboard-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 }
 </style>

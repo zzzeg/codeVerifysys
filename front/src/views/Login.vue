@@ -299,16 +299,15 @@ onBeforeUnmount(() => {
                 <a class="link link-disabled" @click.prevent="handleForgotPasswordDisabled">忘记密码？</a>
               </div>
 
-              <el-button class="primary" native-type="submit" :loading="loginForm.loading"
-                @click="handleLogin">登录</el-button>
+              <el-button class="primary" native-type="submit" :loading="loginForm.loading">登录</el-button>
 
               <div class="sub-actions">
                 <el-button class="sub" text plain @click="mode = 'register'">注册</el-button>
               </div>
             </el-form>
 
-            <el-form v-else-if="mode === 'register'" ref="registerFormRef" :model="registerForm" :rules="registerRules" class="form"
-              @submit.prevent="handleRegister">
+            <el-form v-else-if="mode === 'register'" ref="registerFormRef" :model="registerForm" :rules="registerRules"
+              class="form" @submit.prevent="handleRegister">
               <el-form-item prop="username">
                 <el-input v-model="registerForm.username" placeholder="用户名(3-32)" autocomplete="username" />
               </el-form-item>
@@ -332,8 +331,7 @@ onBeforeUnmount(() => {
                   autocomplete="new-password" />
               </el-form-item>
 
-              <el-button class="primary" native-type="submit" :loading="registerForm.loading"
-                @click="handleRegister">注册并登录</el-button>
+              <el-button class="primary" native-type="submit" :loading="registerForm.loading">注册并登录</el-button>
 
               <div class="row row-center">
                 <span class="muted">已有账号？</span>
@@ -341,7 +339,8 @@ onBeforeUnmount(() => {
               </div>
             </el-form>
 
-            <el-form v-else ref="forgotFormRef" :model="forgotForm" :rules="forgotRules" class="form" @submit.prevent="handleResetPassword">
+            <el-form v-else ref="forgotFormRef" :model="forgotForm" :rules="forgotRules" class="form"
+              @submit.prevent="handleResetPassword">
               <el-form-item prop="email">
                 <el-input v-model="forgotForm.email" placeholder="邮箱" autocomplete="email" />
               </el-form-item>
@@ -362,8 +361,7 @@ onBeforeUnmount(() => {
                   autocomplete="new-password" />
               </el-form-item>
 
-              <el-button class="primary" native-type="submit" :loading="forgotForm.loading"
-                @click="handleResetPassword">重置密码</el-button>
+              <el-button class="primary" native-type="submit" :loading="forgotForm.loading">重置密码</el-button>
 
               <div class="row row-center">
                 <a class="link" @click.prevent="mode = 'login'">返回登录</a>

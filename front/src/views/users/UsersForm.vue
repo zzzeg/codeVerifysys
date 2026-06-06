@@ -5,6 +5,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
 import type { ApiResp } from '../../utils/request'
+import { useUnsavedChangesGuard } from '../../composables/useUnsavedChangesGuard'
 
 interface UserItem {
   id: string
@@ -40,6 +41,9 @@ const form = reactive<Partial<UserItem & { password: string }>>({
   roleIds: [],
 })
 const selectedRoleId = ref('role-developer')
+const { resetBaseline, markSaved } = useUnsavedChangesGuard({
+  getSnapshot: () => ({ form, selectedRoleId: selectedRoleId.value }),
+})
 
 const validateEmail = (_rule: unknown, value: string | undefined, callback: (error?: Error) => void) => {
   if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
@@ -89,6 +93,23 @@ const fetchDetail = async () => {
   }
 }
 
+/**
+ * 重置用户表单
+ * @returns 无返回值，内部恢复新增用户默认状态
+ */
+const resetForm = () => {
+  Object.assign(form, {
+    username: '',
+    email: '',
+    phone: '',
+    password: '',
+    status: 'active',
+    roleIds: [],
+  })
+  selectedRoleId.value = roles.value.some((role) => role.id === 'role-developer') ? 'role-developer' : roles.value[0]?.id || ''
+  formRef.value?.clearValidate()
+}
+
 const saveUser = async () => {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -109,6 +130,7 @@ const saveUser = async () => {
       await request.post('/api/users', payload)
       ElMessage.success('创建成功')
     }
+    markSaved()
     router.push('/users/list')
   } catch (err: any) {
     ElMessage.error(err?.response?.data?.message || '保存失败')
@@ -119,6 +141,8 @@ onMounted(async () => {
   loading.value = true
   try {
     await Promise.all([fetchRoles(), fetchDetail()])
+    if (!isEdit.value) resetForm()
+    resetBaseline()
   } finally {
     loading.value = false
   }
@@ -129,34 +153,21 @@ onMounted(async () => {
   <div class="form-shell pure-form-shell" v-loading="loading">
     <div class="pure-form-card">
       <div class="pure-form-title">基础信息</div>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
-        <el-form-item label="用户名" prop="username"><el-input v-model="form.username" placeholder="请输入用户名" /></el-form-item>
-        <el-form-item label="邮箱" prop="email"><el-input v-model="form.email" placeholder="请输入邮箱" /></el-form-item>
-        <el-form-item label="电话"><el-input v-model="form.phone" placeholder="请输入电话" /></el-form-item>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="auto">
+        <el-form-item label="用户名:" prop="username"><el-input v-model="form.username"
+            placeholder="请输入用户名" /></el-form-item>
+        <el-form-item label="邮箱:" prop="email"><el-input v-model="form.email" placeholder="请输入邮箱" /></el-form-item>
+        <el-form-item label="电话:"><el-input v-model="form.phone" placeholder="请输入电话" /></el-form-item>
         <el-form-item v-if="!isEdit" label="密码">
           <el-input v-model="form.password" type="password" show-password placeholder="默认可填写初始密码" />
         </el-form-item>
-        <el-form-item label="状态">
-          <el-switch
-            v-model="form.status"
-            active-value="active"
-            inactive-value="disabled"
-          />
+        <el-form-item label="状态:">
+          <el-switch v-model="form.status" active-value="active" inactive-value="disabled" />
           <span class="switch-status-text">{{ form.status === 'active' ? '启用' : '禁用' }}</span>
         </el-form-item>
-        <el-form-item label="所属角色">
-          <el-select
-            v-model="selectedRoleId"
-            filterable
-            placeholder="请选择用户所属角色"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="role in roles"
-              :key="role.id"
-              :label="role.name"
-              :value="role.id"
-            >
+        <el-form-item label="所属角色:">
+          <el-select v-model="selectedRoleId" filterable placeholder="请选择用户所属角色" style="width: 100%">
+            <el-option v-for="role in roles" :key="role.id" :label="role.name" :value="role.id">
               <div class="role-option">
                 <span>{{ role.name }}</span>
                 <small>{{ role.description || role.id }}</small>
@@ -164,9 +175,9 @@ onMounted(async () => {
             </el-option>
           </el-select>
         </el-form-item>
-        <el-form-item class="form-actions">
-          <el-button @click="router.push('/users/list')">返回列表</el-button>
+        <el-form-item class="form-actions" label=" ">
           <el-button type="primary" @click="saveUser">保存</el-button>
+          <el-button @click="router.push('/users/list')">取消</el-button>
         </el-form-item>
       </el-form>
     </div>

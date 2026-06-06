@@ -125,8 +125,11 @@ onMounted(async () => {
     <div class="finance-cards">
       <div class="finance-card balance">
         <div class="finance-card-icon">
-          <el-icon><Wallet /></el-icon>
+          <el-icon>
+            <Wallet />
+          </el-icon>
         </div>
+
         <div class="finance-card-copy">
           <div class="finance-label">账户余额</div>
           <div class="finance-value">￥{{ Number(profile.balance || 0).toFixed(2) }}</div>
@@ -134,23 +137,30 @@ onMounted(async () => {
       </div>
       <div class="finance-card income">
         <div class="finance-card-icon">
-          <el-icon><Money /></el-icon>
+          <el-icon>
+            <Money />
+          </el-icon>
         </div>
         <div class="finance-card-copy">
           <div class="finance-label">当前收入</div>
           <div class="finance-value">￥{{ Number(profile.currentIncome || 0).toFixed(2) }}</div>
-          <div class="finance-note">系统按管理员设置的结算周期自动结算，200元起结。</div>
         </div>
       </div>
+
     </div>
+
 
     <div class="finance-toolbar">
       <el-button type="primary" @click="withdrawDialogVisible = true">申请提现</el-button>
+      <div class="finance-note">系统按周期自动结算，1元起结。</div>
     </div>
+
 
     <div class="profile-block">
       <div class="block-title">
-        <el-icon><Wallet /></el-icon>
+        <el-icon>
+          <Wallet />
+        </el-icon>
         <span>提现记录</span>
       </div>
       <el-table :data="withdrawRecords" v-loading="loading">
@@ -159,7 +169,8 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="状态" min-width="120">
           <template #default="{ row }">
-            <el-tag :type="statusTypeMap[row.status] || 'warning'">{{ statusTextMap[row.status] || row.status }}</el-tag>
+            <el-tag :type="statusTypeMap[row.status] || 'warning'">{{ statusTextMap[row.status] || row.status
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="bankAccount" label="提现账户" min-width="200" />
@@ -169,15 +180,9 @@ onMounted(async () => {
       </el-table>
 
       <div v-if="total > pageSize" class="pager">
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handlePageChange"
-          @size-change="handleSizeChange"
-        />
+        <el-pagination v-model:current-page="currentPage" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+          :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
+          @size-change="handleSizeChange" />
       </div>
     </div>
 
@@ -198,7 +203,7 @@ onMounted(async () => {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .finance-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -212,6 +217,14 @@ onMounted(async () => {
   border-radius: 4px;
   color: #303133;
   background: #fff;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+
+  .finance-card-copy {
+    flex: 1
+  }
 }
 
 .finance-card.balance {
@@ -230,7 +243,6 @@ onMounted(async () => {
   border-radius: 4px;
   background: #eff6ff;
   color: #2563eb;
-  margin-bottom: 12px;
 }
 
 .finance-label {
@@ -239,16 +251,12 @@ onMounted(async () => {
 }
 
 .finance-value {
-  margin-top: 6px;
   font-size: 28px;
   font-weight: 700;
   color: #2563eb;
 }
 
 .finance-note {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #ebeef5;
   font-size: 12px;
   line-height: 1.6;
   color: #909399;
@@ -256,8 +264,10 @@ onMounted(async () => {
 
 .finance-toolbar {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 12px;
+  justify-content: flex-start;
+  align-items: flex-end;
+  margin: 30px 0;
+  gap: 12px;
 }
 
 .block-title {
@@ -280,7 +290,16 @@ onMounted(async () => {
 
 @media (max-width: 980px) {
   .finance-cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .finance-value {
+    font-size: 20px;
+  }
+
+  .finance-card {
+    padding: 12px;
+    gap: 8px;
   }
 }
 </style>

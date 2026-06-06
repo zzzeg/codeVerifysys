@@ -165,7 +165,7 @@ onBeforeUnmount(clearTaskTimer)
     <!-- <h3 class="vs-ref-section-title">注册码生成</h3> -->
 
     <el-form class="generate-form" label-width="auto">
-      <el-form-item label="项目类型">
+      <el-form-item label="项目类型:">
         <el-select v-model="form.projectName" style="width: 220px">
           <el-option v-for="p in projects" :key="p.name" :label="p.name" :value="p.name" />
         </el-select>
@@ -173,25 +173,26 @@ onBeforeUnmount(clearTaskTimer)
         <el-link style="margin-left: 8px" type="primary" @click="refreshProjects(true)">刷新项目列表</el-link>
       </el-form-item>
 
-      <el-form-item label="卡类型">
+      <el-form-item label="卡类型:">
         <el-radio-group v-model="form.cardType" class="radio-wrap">
           <el-radio v-for="type in cardTypeOptions" :key="type.value" :label="type.value">{{ type.label }}</el-radio>
         </el-radio-group>
       </el-form-item>
 
-      <el-form-item label="购买数量">
+      <el-form-item label="购买数量:">
         <el-input-number v-model="form.count" :min="1" :max="5000" />
         <span class="hint">张</span>
         <span class="hint">超过 1000 张将进入后台任务，完成后可下载结果</span>
       </el-form-item>
 
-      <el-form-item label="备注">
+      <el-form-item label="备注:">
         <el-input v-model="form.remark" style="width: 320px" />
         <span class="hint">可选：注册码备注信息</span>
       </el-form-item>
 
-      <el-form-item>
-        <el-button type="primary" class="vs-ref-button action-btn" @click="handleGenerate" :loading="loading">生成注册码</el-button>
+      <el-form-item label=" ">
+        <el-button type="primary" class="vs-ref-button action-btn" @click="handleGenerate"
+          :loading="loading">生成注册码</el-button>
         <el-button v-if="generated.length" plain @click="handleExport">导出注册码</el-button>
       </el-form-item>
     </el-form>

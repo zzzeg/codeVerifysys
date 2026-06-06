@@ -8,7 +8,7 @@ export const permissionOptions = [
   { label: '自定义数据', value: 'custom-data' },
   { label: '安全策略', value: 'security-policies' },
   { label: '自动发卡', value: 'auto-delivery' },
-  { label: '系统日志', value: 'logs' },
+  { label: '系统管理', value: 'logs' },
   { label: '个人中心', value: 'profile' },
 ]
 

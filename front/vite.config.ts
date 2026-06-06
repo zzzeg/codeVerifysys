@@ -32,7 +32,16 @@ export default defineConfig({
     },
   },
   server: {
-    host: '127.0.0.1',
+    host: '0.0.0.0',
+    strictPort: true,
+    hmr: {
+      protocol: 'ws',
+      clientPort: 5173,
+    },
+    watch: {
+      usePolling: true,
+      interval: 300,
+    },
     proxy: {
       '/api': {
         target: process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:3000',
