@@ -1,5 +1,6 @@
 import { createDeveloperCodeCandidate, hashPassword } from "../utils";
 import { LEGACY_ROLE_OPS, ROLE_ADMIN, ROLE_DEVELOPER, SYSTEM_ROLE_DEFINITIONS } from "../constants/roles";
+import { publicId } from "../db";
 import { execute, query, queryOne } from "./mysql";
 import { TABLE_PREFIX, table } from "./tables";
 
@@ -8,7 +9,9 @@ export const initDb = async () => {
   await createTables();
   await ensureColumns();
   await ensureProjectNumbers();
+  await ensurePublicIds();
   await ensureUserDeveloperCodes();
+  await ensureProjectCreatorUserIds();
   await ensureProductCreatorUserIds();
   await ensureIndexes();
   await ensureSystemRoles();
@@ -135,7 +138,9 @@ const createTables = async () => {
   await execute(
     `CREATE TABLE IF NOT EXISTS ${table("projects")} (
       id VARCHAR(64) PRIMARY KEY,
+      public_id VARCHAR(10) NULL,
       project_no BIGINT NULL,
+      creator_user_id VARCHAR(64) NULL,
       name VARCHAR(64) NOT NULL UNIQUE,
       description VARCHAR(255) NULL,
       config JSON NOT NULL,
@@ -170,6 +175,7 @@ const createTables = async () => {
   await execute(
     `CREATE TABLE IF NOT EXISTS ${table("custom_data")} (
       id VARCHAR(64) PRIMARY KEY,
+      public_id VARCHAR(10) NULL,
       project_id VARCHAR(64) NOT NULL,
       \`key\` VARCHAR(64) NOT NULL,
       \`value\` TEXT NOT NULL,
@@ -181,6 +187,7 @@ const createTables = async () => {
   await execute(
     `CREATE TABLE IF NOT EXISTS ${table("security_policies")} (
       id VARCHAR(64) PRIMARY KEY,
+      public_id VARCHAR(10) NULL,
       project_id VARCHAR(64) NOT NULL,
       name VARCHAR(64) NOT NULL,
       mode VARCHAR(64) NOT NULL,
@@ -194,6 +201,7 @@ const createTables = async () => {
   await execute(
     `CREATE TABLE IF NOT EXISTS ${table("products")} (
       id VARCHAR(64) PRIMARY KEY,
+      public_id VARCHAR(10) NULL,
       project_id VARCHAR(64) NOT NULL,
       creator_user_id VARCHAR(64) NULL,
       name VARCHAR(128) NOT NULL,
@@ -289,7 +297,11 @@ const ensureColumns = async () => {
   await ensureColumn("custom_data", "remark", "VARCHAR(255) NULL");
   await ensureColumn("security_policies", "config", "JSON NULL");
   await ensureColumn("security_policies", "updated_at", "BIGINT NULL");
+  await ensureColumn("security_policies", "public_id", "VARCHAR(10) NULL");
+  await ensureColumn("custom_data", "public_id", "VARCHAR(10) NULL");
+  await ensureColumn("projects", "public_id", "VARCHAR(10) NULL");
   await ensureColumn("projects", "project_no", "BIGINT NULL");
+  await ensureColumn("projects", "creator_user_id", "VARCHAR(64) NULL");
   await ensureColumn("orders", "buyer_email", "VARCHAR(128) NULL");
   await ensureColumn("orders", "mock_pay_token", "VARCHAR(64) NULL");
   await ensureColumn("orders", "variant_id", "VARCHAR(64) NULL");
@@ -302,6 +314,7 @@ const ensureColumns = async () => {
   await ensureColumn("orders", "paid_at", "BIGINT NULL");
   await ensureColumn("orders", "delivered_at", "BIGINT NULL");
   await ensureColumn("products", "creator_user_id", "VARCHAR(64) NULL");
+  await ensureColumn("products", "public_id", "VARCHAR(10) NULL");
   await ensureColumn("products", "status", "VARCHAR(16) NOT NULL DEFAULT 'published'");
   await ensureColumn("products", "cover_url", "VARCHAR(255) NULL");
   await ensureColumn("products", "addon_mode", "TINYINT NOT NULL DEFAULT 0");
@@ -341,6 +354,54 @@ const ensureProjectNumbers = async () => {
   }
 };
 
+/**
+ * 生成指定表内唯一的 public_id
+ *
+ * @param tableName 需要生成短标识的业务表名，不包含统一表前缀
+ * @returns 返回当前表内未被占用的 10 位 public_id
+ */
+const generateUniquePublicId = async (tableName: string) => {
+  for (let i = 0; i < 32; i += 1) {
+    const candidate = publicId();
+    if (candidate.length !== 10) continue;
+    const exists = await queryOne<{ id: string }>(`SELECT id FROM ${table(tableName)} WHERE public_id = ?`, [candidate]);
+    if (!exists) return candidate;
+  }
+  throw new Error(`生成 ${tableName} public_id 失败`);
+};
+
+/**
+ * 为历史数据补齐 public_id
+ *
+ * @param tableName 需要回填短标识的业务表名，不包含统一表前缀
+ * @returns 无返回值，内部完成历史数据回填
+ */
+const ensureTablePublicIds = async (tableName: string) => {
+  const rows = await query<{ id: string }>(
+    `SELECT id FROM ${table(tableName)} WHERE public_id IS NULL OR public_id = '' ORDER BY created_at ASC, id ASC`
+  );
+
+  for (const row of rows) {
+    const nextPublicId = await generateUniquePublicId(tableName);
+    await execute(`UPDATE ${table(tableName)} SET public_id = ? WHERE id = ?`, [nextPublicId, row.id]);
+  }
+};
+
+/**
+ * 为需要出现在前端 URL 的业务数据补齐 public_id
+ *
+ * @returns 无返回值，内部按表回填短标识
+ */
+const ensurePublicIds = async () => {
+  // 1. 项目编辑、查看页面需要短标识
+  await ensureTablePublicIds("projects");
+
+  // 2. 自定义数据、安全策略和商品编辑页需要短标识
+  await ensureTablePublicIds("custom_data");
+  await ensureTablePublicIds("security_policies");
+  await ensureTablePublicIds("products");
+};
+
 const generateUniqueDeveloperCode = async () => {
   for (let i = 0; i < 16; i += 1) {
     const code = createDeveloperCodeCandidate(6);
@@ -361,6 +422,22 @@ const ensureUserDeveloperCodes = async () => {
   }
 };
 
+/**
+ * 为历史项目补齐创建者归属
+ *
+ * @returns 无返回值，内部将缺失归属的项目归到管理员或最早用户
+ */
+const ensureProjectCreatorUserIds = async () => {
+  const owner =
+    (await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE username = 'admin' LIMIT 1`)) ||
+    (await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} ORDER BY created_at ASC, id ASC LIMIT 1`));
+  if (!owner?.id) return;
+
+  await execute(`UPDATE ${table("projects")} SET creator_user_id = ? WHERE creator_user_id IS NULL OR creator_user_id = ''`, [
+    owner.id,
+  ]);
+};
+
 const ensureProductCreatorUserIds = async () => {
   const owner =
     (await queryOne<{ id: string }>(`SELECT id FROM ${table("users")} WHERE username = 'admin' LIMIT 1`)) ||
@@ -375,7 +452,11 @@ const ensureProductCreatorUserIds = async () => {
 const ensureIndexes = async () => {
   // 一个项目只能有一条安全策略
   await ensureUniqueIndexIfNoDuplicates("security_policies", "uniq_project_id", ["project_id"]);
+  await ensureUniqueIndexIfNoDuplicates("security_policies", "uniq_security_policies_public_id", ["public_id"]);
+  await ensureUniqueIndexIfNoDuplicates("custom_data", "uniq_custom_data_public_id", ["public_id"]);
+  await ensureUniqueIndexIfNoDuplicates("projects", "uniq_projects_public_id", ["public_id"]);
   await ensureUniqueIndexIfNoDuplicates("projects", "uniq_project_no", ["project_no"]);
+  await ensureUniqueIndexIfNoDuplicates("products", "uniq_products_public_id", ["public_id"]);
   await ensureUniqueIndexIfNoDuplicates("users", "uniq_developer_code", ["developer_code"]);
 };
 
@@ -444,9 +525,9 @@ const seedIfEmpty = async () => {
   await execute(`INSERT INTO ${table("user_roles")} (user_id, role_id) VALUES ('u-admin', ?)`, [ROLE_ADMIN]);
 
   await execute(
-    `INSERT INTO ${table("projects")} (id, project_no, name, description, config, created_at, updated_at)
-     VALUES ('p-1', 1, '默认项目','演示用例',?, ?, ?)`,
-    [JSON.stringify({ theme: "light" }), now, now]
+    `INSERT INTO ${table("projects")} (id, public_id, project_no, creator_user_id, name, description, config, created_at, updated_at)
+     VALUES ('p-1', ?, 1, 'u-admin', '默认项目','演示用例',?, ?, ?)`,
+    [await generateUniquePublicId("projects"), JSON.stringify({ theme: "light" }), now, now]
   );
 
   await execute(

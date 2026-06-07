@@ -174,12 +174,12 @@ onBeforeUnmount(clearTaskTimer)
       </el-form-item>
 
       <el-form-item label="卡类型:">
-        <el-radio-group v-model="form.cardType" class="radio-wrap">
+        <el-radio-group v-model="form.cardType">
           <el-radio v-for="type in cardTypeOptions" :key="type.value" :label="type.value">{{ type.label }}</el-radio>
         </el-radio-group>
       </el-form-item>
 
-      <el-form-item label="购买数量:">
+      <el-form-item label="生成数量:">
         <el-input-number v-model="form.count" :min="1" :max="5000" />
         <span class="hint">张</span>
         <span class="hint">超过 1000 张将进入后台任务，完成后可下载结果</span>
@@ -193,7 +193,7 @@ onBeforeUnmount(clearTaskTimer)
       <el-form-item label=" ">
         <el-button type="primary" class="vs-ref-button action-btn" @click="handleGenerate"
           :loading="loading">生成注册码</el-button>
-        <el-button v-if="generated.length" plain @click="handleExport">导出注册码</el-button>
+        <el-button v-if="generated.length" type="success" @click="handleExport">导出注册码</el-button>
       </el-form-item>
     </el-form>
 
@@ -205,25 +205,25 @@ onBeforeUnmount(clearTaskTimer)
       <el-progress :percentage="progressPercentage" />
     </div>
 
+    <!-- <div class="datalist" v-if="generated.length">
+      <h3 class="vs-ref-section-title">生成结果</h3>
+      <p class="hint" v-for="item in generated" :key="item.code">{{ item.code }}</p>
+
+    </div> -->
+
     <el-table v-if="generated.length" :data="generated" border>
-      <el-table-column prop="code" label="注册码" />
+      <el-table-column prop="code" label="注册码" min-width="320" />
       <el-table-column prop="cardType" label="卡类型" width="120" />
-      <el-table-column prop="projectName" label="项目类型" />
+      <el-table-column prop="projectName" label="项目类型" width="120" />
       <el-table-column prop="remark" label="备注" />
     </el-table>
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .generate-form {
   max-width: 920px;
   margin-bottom: 20px;
-}
-
-.radio-wrap {
-  display: flex;
-  gap: 10px 18px;
-  flex-wrap: wrap;
 }
 
 .hint {
@@ -252,5 +252,15 @@ onBeforeUnmount(clearTaskTimer)
   margin-bottom: 10px;
   color: #374151;
   font-size: 14px;
+}
+
+.datalist {
+  padding: 6px 12px;
+  border: 1px solid #999;
+  border-radius: 4px;
+
+  p {
+    line-height: 1;
+  }
 }
 </style>

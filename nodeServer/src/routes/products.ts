@@ -8,6 +8,12 @@ import { sendOrderDeliveryEmail } from "../utils/mailer";
 import { createOrderIdCandidate } from "../utils";
 import { ResultSetHeader } from "mysql2";
 import { getPagination } from "../utils/pagination";
+import {
+  generateUniquePublicId,
+  getAccessibleProject,
+  getDeveloperKeywordScope,
+  getProjectOwnerScope,
+} from "../utils/permissionScope";
 
 const router = Router();
 
@@ -60,8 +66,11 @@ const generateCardCode = (cardType: string, addonMode?: boolean) => {
 
 const mapProductRow = (r: any): Product => ({
   id: r.id,
+  publicId: r.public_id || undefined,
   projectId: r.project_id,
-  creatorUserId: r.creator_user_id || undefined,
+  creatorUserId: r.creator_user_id || r.project_creator_user_id || undefined,
+  developerUsername: r.developer_username || undefined,
+  developerCode: r.developer_code || undefined,
   name: r.name,
   summary: r.summary || undefined,
   status: (r.status as Product["status"]) || "published",
@@ -249,18 +258,25 @@ const generateUniqueOrderId = async (developerCode: string) => {
 
 const isDuplicateEntry = (err: any) => String(err?.code || "").includes("ER_DUP_ENTRY");
 
-const isAdminUser = (req: AuthRequest) =>
-  req.user?.username === "admin" || req.user?.roleIds.includes("role-admin") || req.user?.permissions.includes("*");
-
-const ownerWhere = (req: AuthRequest, alias = "") => {
-  const prefix = alias ? `${alias}.` : "";
-  if (isAdminUser(req)) return { sql: "1 = 1", params: [] as any[] };
-  return { sql: `${prefix}creator_user_id = ?`, params: [req.user?.id] as any[] };
-};
-
-const getOwnedProduct = async (req: AuthRequest, id: string) => {
-  const owner = ownerWhere(req);
-  return queryOne(`SELECT * FROM ${table("products")} WHERE id = ? AND ${owner.sql}`, [id, ...owner.params]);
+/**
+ * 按内部 ID 或 public_id 查询当前用户可访问的商品
+ *
+ * @param req 当前请求对象，内部读取登录用户的数据范围
+ * @param value 商品内部 ID 或 public_id
+ * @returns 返回商品记录，不存在或无权访问时返回 undefined
+ */
+const getAccessibleProduct = async (req: AuthRequest, value: string) => {
+  const owner = getProjectOwnerScope(req, "p");
+  return queryOne(
+    `SELECT pr.*, p.creator_user_id as project_creator_user_id,
+            u.username as developer_username,
+            u.developer_code as developer_code
+     FROM ${table("products")} pr
+     LEFT JOIN ${table("projects")} p ON p.id = pr.project_id
+     LEFT JOIN ${table("users")} u ON u.id = p.creator_user_id
+     WHERE (pr.id = ? OR pr.public_id = ?) AND ${owner.sql}`,
+    [value, value, ...owner.params]
+  );
 };
 
 const insertIssuedCode = async (
@@ -483,28 +499,44 @@ router.post("/public/payment/callback", async (req, res) => {
 router.use(authMiddleware);
 router.use(requirePermission("products", "auto-delivery"));
 
-router.get("/", async (req, res) => {
-  const authReq = req as AuthRequest;
-  const owner = ownerWhere(authReq);
-  const { keyword = "", projectId = "" } = req.query as Record<string, string>;
+router.get("/", async (req: AuthRequest, res) => {
+  const owner = getProjectOwnerScope(req, "p");
+  const { keyword = "", projectId = "", developerKeyword = "" } = req.query as Record<string, string>;
   const { pageSize, offset } = getPagination(req.query as Record<string, any>);
   const kw = (keyword || "").trim();
   const where = [owner.sql];
   const params = [...owner.params];
   if (projectId.trim()) {
-    where.push("project_id = ?");
+    where.push("pr.project_id = ?");
     params.push(projectId.trim());
   }
   if (kw) {
-    where.push("name LIKE ?");
+    where.push("pr.name LIKE ?");
     params.push(`%${kw}%`);
   }
+  const developerScope = getDeveloperKeywordScope(developerKeyword, "u");
+  if (developerScope.sql) {
+    where.push(developerScope.sql);
+    params.push(...developerScope.params);
+  }
   const totalRow = await queryOne<{ c: number }>(
-    `SELECT COUNT(*) as c FROM ${table("products")} WHERE ${where.join(" AND ")}`,
+    `SELECT COUNT(*) as c
+     FROM ${table("products")} pr
+     LEFT JOIN ${table("projects")} p ON p.id = pr.project_id
+     LEFT JOIN ${table("users")} u ON u.id = p.creator_user_id
+     WHERE ${where.join(" AND ")}`,
     params,
   );
   const pagedRows = await query(
-    `SELECT * FROM ${table("products")} WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `SELECT pr.*, p.creator_user_id as project_creator_user_id,
+            u.username as developer_username,
+            u.developer_code as developer_code
+     FROM ${table("products")} pr
+     LEFT JOIN ${table("projects")} p ON p.id = pr.project_id
+     LEFT JOIN ${table("users")} u ON u.id = p.creator_user_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY pr.created_at DESC
+     LIMIT ? OFFSET ?`,
     [...params, pageSize, offset],
   );
   return respond(res, { list: pagedRows.map(mapProductRow), total: Number(totalRow?.c || 0) });
@@ -565,7 +597,7 @@ router.get("/orders/:orderId", async (req: AuthRequest, res) => {
 });
 
 router.get("/:id", async (req, res) => {
-  const row = await getOwnedProduct(req as AuthRequest, req.params.id);
+  const row = await getAccessibleProduct(req as AuthRequest, req.params.id);
   if (!row) return respondError(res, "未找到商品", 404);
   return respond(res, mapProductRow(row));
 });
@@ -576,14 +608,16 @@ router.post("/", async (req: AuthRequest, res) => {
   const sanitized = sanitizeProductPayload(req.body);
   if (!sanitized.ok) return respondError(res, sanitized.message, 400);
   const { projectId, name, summary, status, description, allowAnonymous, addonMode, minBuy, maxBuy, variants } = sanitized.payload;
-  const project = await queryOne<{ id: string }>(`SELECT id FROM ${table("projects")} WHERE id = ?`, [projectId]);
-  if (!project) return respondError(res, "项目不存在", 400);
+  const project = await getAccessibleProject(req, projectId);
+  if (!project) return respondError(res, "项目不存在或无权访问", 400);
   const normalizedVariants: ProductVariant[] = variants.map((v) => ({ ...v, id: uuid() }));
+  const nextPublicId = await generateUniquePublicId("products");
 
   const product: Product = {
     id,
-    projectId,
-    creatorUserId: req.user?.id,
+    publicId: nextPublicId,
+    projectId: project.id,
+    creatorUserId: project.creator_user_id || req.user?.id,
     name,
     summary,
     status,
@@ -599,10 +633,11 @@ router.post("/", async (req: AuthRequest, res) => {
 
   await execute(
      `INSERT INTO ${table("products")}
-     (id, project_id, creator_user_id, name, summary, status, cover_url, allow_anonymous, addon_mode, min_buy, max_buy, variants, description, link_code, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, public_id, project_id, creator_user_id, name, summary, status, cover_url, allow_anonymous, addon_mode, min_buy, max_buy, variants, description, link_code, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       product.id,
+      product.publicId,
       product.projectId,
       product.creatorUserId || null,
       product.name,
@@ -624,20 +659,24 @@ router.post("/", async (req: AuthRequest, res) => {
     [uuid(), req.user?.username || "", `创建商品：${product.name}`, now],
   );
 
-  return respond(res, { id: product.id });
+  return respond(res, { id: product.id, publicId: product.publicId });
 });
 
 router.put("/:id", async (req: AuthRequest, res) => {
-  const existing = await getOwnedProduct(req, req.params.id);
+  const existing = await getAccessibleProduct(req, req.params.id);
   if (!existing) return respondError(res, "未找到商品", 404);
 
   const sanitized = sanitizeProductPayload({ ...req.body, projectId: req.body?.projectId ?? "__optional__" });
   if (!sanitized.ok && typeof req.body?.projectId !== "undefined") return respondError(res, sanitized.message, 400);
 
   const projectId = req.body?.projectId;
+  let nextProjectId: string | undefined;
+  let nextCreatorUserId: string | undefined;
   if (typeof projectId !== "undefined") {
-    const project = await queryOne<{ id: string }>(`SELECT id FROM ${table("projects")} WHERE id = ?`, [projectId]);
-    if (!project) return respondError(res, "项目不存在", 400);
+    const project = await getAccessibleProject(req, String(projectId));
+    if (!project) return respondError(res, "项目不存在或无权访问", 400);
+    nextProjectId = project.id;
+    nextCreatorUserId = project.creator_user_id || req.user?.id;
   }
 
   if (typeof req.body?.summary !== "undefined" && String(req.body.summary || "").trim().length > 200) {
@@ -665,6 +704,7 @@ router.put("/:id", async (req: AuthRequest, res) => {
   await execute(
     `UPDATE ${table("products")}
      SET project_id = COALESCE(?, project_id),
+         creator_user_id = COALESCE(?, creator_user_id),
          name = COALESCE(?, name),
          summary = COALESCE(?, summary),
          status = COALESCE(?, status),
@@ -677,7 +717,8 @@ router.put("/:id", async (req: AuthRequest, res) => {
          description = COALESCE(?, description)
      WHERE id = ?`,
     [
-      typeof projectId === "undefined" ? null : projectId,
+      typeof projectId === "undefined" ? null : nextProjectId || null,
+      typeof projectId === "undefined" ? null : nextCreatorUserId || null,
       typeof req.body?.name === "undefined" ? null : String(req.body.name || "").trim(),
       typeof req.body?.summary === "undefined" ? null : String(req.body.summary || "").trim(),
       typeof req.body?.status === "undefined" ? null : req.body.status === "draft" ? "draft" : "published",
@@ -687,7 +728,7 @@ router.put("/:id", async (req: AuthRequest, res) => {
       typeof req.body?.maxBuy === "undefined" ? null : Number(req.body.maxBuy),
       variants,
       typeof req.body?.description === "undefined" ? null : String(req.body.description || "").trim(),
-      req.params.id,
+      (existing as any).id,
     ]
   );
   await execute(
@@ -698,8 +739,9 @@ router.put("/:id", async (req: AuthRequest, res) => {
 });
 
 router.delete("/:id", async (req: AuthRequest, res) => {
-  const owner = ownerWhere(req);
-  await execute(`DELETE FROM ${table("products")} WHERE id = ? AND ${owner.sql}`, [req.params.id, ...owner.params]);
+  const existing = await getAccessibleProduct(req, req.params.id);
+  if (!existing) return respondError(res, "未找到商品", 404);
+  await execute(`DELETE FROM ${table("products")} WHERE id = ?`, [(existing as any).id]);
   await execute(
     `INSERT INTO ${table("logs")} (id, log_type, action, user, status, message, created_at) VALUES (?, 'operation', 'delete_product', ?, 'success', ?, ?)`,
     [uuid(), req.user?.username || "", `删除商品：${req.params.id}`, Date.now()],
@@ -708,11 +750,7 @@ router.delete("/:id", async (req: AuthRequest, res) => {
 });
 
 router.get("/:id/link", async (req: AuthRequest, res) => {
-  const owner = ownerWhere(req);
-  const row = await queryOne<{ link_code: string; status: string }>(`SELECT link_code, status FROM ${table("products")} WHERE id = ? AND ${owner.sql}`, [
-    req.params.id,
-    ...owner.params,
-  ]);
+  const row = await getAccessibleProduct(req, req.params.id) as { link_code?: string; status?: string } | undefined;
   if (!row) return respondError(res, "未找到商品", 404);
   if (row.status === "draft") return respondError(res, "草稿商品没有公开链接", 400);
   return respond(res, { link: `/api/products/public/${row.link_code}` });

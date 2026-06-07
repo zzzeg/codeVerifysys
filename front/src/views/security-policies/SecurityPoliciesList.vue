@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
 import { formatDateTime } from '../../utils/datetime'
+import { useAuthStore } from '../../store/auth'
+import { isAdminUser } from '../../utils/authScope'
 
 interface ProjectOption {
   id: string
@@ -16,22 +18,27 @@ type PolicyMode = 'basic' | 'advanced'
 
 interface PolicyItem {
   id: string
+  publicId?: string
   projectId: string
   projectName?: string
+  developerUsername?: string
+  developerCode?: string
   status: PolicyStatus
   mode: PolicyMode
   createdAt?: number
 }
 
 const router = useRouter()
+const auth = useAuthStore()
 const list = ref<PolicyItem[]>([])
 const loading = ref(false)
 const total = ref(0)
 const projects = ref<ProjectOption[]>([])
-const filters = reactive({ projectId: '', status: '', mode: '' })
+const filters = reactive({ projectId: '', status: '', mode: '', developerKeyword: '' })
 const pagination = reactive({ page: 1, pageSize: 10 })
 const filterDrawerOpen = ref(false)
 const tableMaxHeight = 'var(--vs-table-max-height)'
+const canViewDeveloper = computed(() => isAdminUser(auth.currentUser))
 
 const statusText = (status: PolicyStatus) => (status === 'enabled' ? '开启' : '关闭')
 const modeText = (mode: PolicyMode) => (mode === 'advanced' ? '高级' : '初级')
@@ -49,6 +56,7 @@ const fetchPolicies = async () => {
     if (filters.projectId) params.projectId = filters.projectId
     if (filters.status) params.status = filters.status
     if (filters.mode) params.mode = filters.mode
+    if (canViewDeveloper.value && filters.developerKeyword) params.developerKeyword = filters.developerKeyword
 
     const resp = await request.get('/api/security-policies', { params })
     const data = resp.data.data as any
@@ -69,6 +77,7 @@ const resetSearch = () => {
   filters.projectId = ''
   filters.status = ''
   filters.mode = ''
+  filters.developerKeyword = ''
   pagination.page = 1
   fetchPolicies()
   filterDrawerOpen.value = false
@@ -128,6 +137,8 @@ onBeforeUnmount(() => {
           <el-option label="初级" value="basic" />
           <el-option label="高级" value="advanced" />
         </el-select>
+        <span v-if="canViewDeveloper" class="label">开发者：</span>
+        <el-input v-if="canViewDeveloper" v-model="filters.developerKeyword" style="width: 180px" clearable />
         <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
       </div>
     </div>
@@ -153,6 +164,8 @@ onBeforeUnmount(() => {
             <el-option label="初级" value="basic" />
             <el-option label="高级" value="advanced" />
           </el-select>
+          <label v-if="canViewDeveloper">开发者</label>
+          <el-input v-if="canViewDeveloper" v-model="filters.developerKeyword" clearable />
         </div>
         <div class="mobile-filter-actions">
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
@@ -165,6 +178,11 @@ onBeforeUnmount(() => {
       <el-table-column prop="projectName" label="项目名称" min-width="100">
         <template #default="{ row }">
           {{ row.projectName || row.projectId }}
+        </template>
+      </el-table-column>
+      <el-table-column v-if="canViewDeveloper" label="开发者" min-width="110">
+        <template #default="{ row }">
+          {{ row.developerUsername || row.developerCode || '-' }}
         </template>
       </el-table-column>
       <el-table-column prop="status" label="策略状态" min-width="90">
@@ -185,7 +203,7 @@ onBeforeUnmount(() => {
       <el-table-column label="操作" width="140" align="center">
         <template #default="{ row }">
           <el-button size="small" type="primary"
-            @click="router.push(`/security-policies/edit/${row.id}`)">编辑</el-button>
+            @click="router.push(`/security-policies/edit/${row.publicId || row.id}`)">编辑</el-button>
           <el-button size="small" type="danger" @click="removePolicy(row)">删除</el-button>
         </template>
       </el-table-column>

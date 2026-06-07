@@ -4,6 +4,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
+import { useAuthStore } from '../../store/auth'
+import { isAdminUser } from '../../utils/authScope'
 
 interface ProjectItem {
   id: string
@@ -24,7 +26,10 @@ interface VariantItem {
 
 interface ProductItem {
   id: string
+  publicId?: string
   projectId: string
+  developerUsername?: string
+  developerCode?: string
   name: string
   summary?: string
   status?: 'draft' | 'published'
@@ -38,6 +43,7 @@ interface ProductItem {
 }
 
 const router = useRouter()
+const auth = useAuthStore()
 const loading = ref(false)
 const filterDrawerOpen = ref(false)
 const projects = ref<ProjectItem[]>([])
@@ -50,13 +56,16 @@ const total = ref(0)
 const filterForm = reactive({
   projectId: '',
   productName: '',
+  developerKeyword: '',
 })
 const appliedFilters = reactive({
   projectId: '',
   productName: '',
+  developerKeyword: '',
 })
 
 const projectNameMap = computed(() => Object.fromEntries(projects.value.map((item) => [item.id, item.name])))
+const canViewDeveloper = computed(() => isAdminUser(auth.currentUser))
 
 const fetchProjects = async () => {
   const resp = await request.get('/api/projects', { params: { page: 1, pageSize: 200 } })
@@ -75,6 +84,9 @@ const fetchProducts = async () => {
     const params: Record<string, string | number> = { page: page.value, pageSize: pageSize.value }
     if (appliedFilters.projectId) params.projectId = appliedFilters.projectId
     if (appliedFilters.productName.trim()) params.keyword = appliedFilters.productName.trim()
+    if (canViewDeveloper.value && appliedFilters.developerKeyword.trim()) {
+      params.developerKeyword = appliedFilters.developerKeyword.trim()
+    }
     const resp = await request.get('/api/products', { params })
     const data = resp.data.data || {}
     products.value = data.list || []
@@ -92,6 +104,7 @@ const fetchProducts = async () => {
 const handleSearch = () => {
   appliedFilters.projectId = filterForm.projectId
   appliedFilters.productName = filterForm.productName
+  appliedFilters.developerKeyword = filterForm.developerKeyword
   page.value = 1
   filterDrawerOpen.value = false
   fetchProducts()
@@ -100,8 +113,10 @@ const handleSearch = () => {
 const resetSearch = () => {
   filterForm.projectId = ''
   filterForm.productName = ''
+  filterForm.developerKeyword = ''
   appliedFilters.projectId = ''
   appliedFilters.productName = ''
+  appliedFilters.developerKeyword = ''
   page.value = 1
   filterDrawerOpen.value = false
   fetchProducts()
@@ -119,7 +134,7 @@ const handleSizeChange = (value: number) => {
 }
 
 const openEdit = (row: ProductItem) => {
-  router.push(`/auto-delivery/edit/${row.id}`)
+  router.push(`/auto-delivery/edit/${row.publicId || row.id}`)
 }
 
 const removeProduct = async (row: ProductItem) => {
@@ -130,7 +145,7 @@ const removeProduct = async (row: ProductItem) => {
 }
 
 const openProductLink = async (row: ProductItem) => {
-  const resp = await request.get(`/api/products/${row.id}/link`)
+  const resp = await request.get(`/api/products/${row.publicId || row.id}/link`)
   const link = resp.data.data.link
   const code = String(link).split('/').pop()
   if (!code) {
@@ -165,6 +180,8 @@ onBeforeUnmount(() => {
         </el-select>
         <span class="label">商品名称：</span>
         <el-input v-model="filterForm.productName" class="filter-input" clearable />
+        <span v-if="canViewDeveloper" class="label">开发者：</span>
+        <el-input v-if="canViewDeveloper" v-model="filterForm.developerKeyword" class="filter-input" clearable />
         <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
       </div>
     </div>
@@ -180,6 +197,8 @@ onBeforeUnmount(() => {
           </el-select>
           <label>商品名称</label>
           <el-input v-model="filterForm.productName" clearable />
+          <label v-if="canViewDeveloper">开发者</label>
+          <el-input v-if="canViewDeveloper" v-model="filterForm.developerKeyword" clearable />
         </div>
         <div class="mobile-filter-actions">
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
@@ -192,6 +211,11 @@ onBeforeUnmount(() => {
       <el-table-column label="项目名称" min-width="100">
         <template #default="{ row }">
           {{ projectNameMap[row.projectId] || row.projectId }}
+        </template>
+      </el-table-column>
+      <el-table-column v-if="canViewDeveloper" label="开发者" min-width="110">
+        <template #default="{ row }">
+          {{ row.developerUsername || row.developerCode || '-' }}
         </template>
       </el-table-column>
       <el-table-column prop="name" label="商品名称" min-width="140" align="center" />

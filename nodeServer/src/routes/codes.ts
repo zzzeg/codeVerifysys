@@ -5,9 +5,10 @@ import {
   type RegisterCode,
   type CodeStatus,
 } from "../db";
-import { respond, respondError, authMiddleware, requirePermission } from "../middlewares/auth";
+import { respond, respondError, authMiddleware, requirePermission, type AuthRequest } from "../middlewares/auth";
 import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
+import { getAccessibleProject, getDeveloperKeywordScope, getProjectOwnerScope } from "../utils/permissionScope";
 
 const router = Router();
 router.use(authMiddleware);
@@ -89,6 +90,9 @@ const mapCodeRow = (r: any): RegisterCode => ({
   code: r.code,
   projectId: r.project_id,
   projectName: r.project_name || r.resolved_project_name || r.project_id,
+  developerId: r.developer_id || r.creator_user_id || undefined,
+  developerUsername: r.developer_username || undefined,
+  developerCode: r.developer_code || undefined,
   cardType: r.card_type,
   status: r.status,
   isOnline: Boolean(r.is_online),
@@ -195,6 +199,44 @@ const normalizeImportDelimiter = (delimiter: string) => {
   return ',';
 };
 
+/**
+ * 解析并校验当前用户可访问的注册码
+ *
+ * @param req 当前请求对象，内部读取注册码标识和登录用户
+ * @returns 返回注册码基础记录，不存在或无权访问时返回 undefined
+ */
+const resolveAccessibleCode = async (req: AuthRequest) => {
+  const ownerScope = getProjectOwnerScope(req, "p");
+  return queryOne<{ id: string; project_id: string; expire_at: number | null }>(
+    `SELECT rc.id, rc.project_id, rc.expire_at
+     FROM ${table("register_codes")} rc
+     LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+     WHERE rc.id = ? AND ${ownerScope.sql}`,
+    [req.params.id, ...ownerScope.params]
+  );
+};
+
+/**
+ * 过滤当前用户可访问的注册码 ID 列表
+ *
+ * @param req 当前请求对象，内部读取登录用户
+ * @param ids 前端提交的注册码 ID 列表
+ * @returns 返回当前用户可访问的注册码 ID 列表
+ */
+const getAccessibleCodeIds = async (req: AuthRequest, ids: string[]) => {
+  const cleanIds = Array.from(new Set(ids.map(String).filter(Boolean)));
+  if (!cleanIds.length) return [];
+  const ownerScope = getProjectOwnerScope(req, "p");
+  const rows = await query<{ id: string }>(
+    `SELECT rc.id
+     FROM ${table("register_codes")} rc
+     LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+     WHERE rc.id IN (${sqlPlaceholders(cleanIds.length)}) AND ${ownerScope.sql}`,
+    [...cleanIds, ...ownerScope.params]
+  );
+  return rows.map((row) => row.id);
+};
+
 const normalizeImportCardType = (value?: string | null) => {
   const text = String(value || '').trim().toLowerCase();
   const mapping: Record<string, string> = {
@@ -248,19 +290,23 @@ const inferCardTypeFromExpire = (activatedAt: number | null, expireAt: number | 
   return matched ? matched[0] : '';
 };
 // 假设你用到的依赖和类型已经定义（uuid、queryOne、withTransaction、table、cardTypeExpireMs、respond、respondError、RegisterCode）
-router.post("/generate", async (req, res) => {
+router.post("/generate", async (req: AuthRequest, res) => {
   const { count = 1, projectId, projectName, saletype, remark, cardType = "month" } = req.body || {};
   const taskId = uuid();
   const generated: string[] = [];
   const items: RegisterCode[] = [];
 
   // 根据projectId或projectName查询项目
+  const ownerScope = getProjectOwnerScope(req, "p");
   const project =
-    (projectId
-      ? await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE id = ?`, [projectId])
-      : undefined) ||
+    (projectId ? await getAccessibleProject(req, String(projectId)) : undefined) ||
     (projectName
-      ? await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE name = ?`, [projectName])
+      ? await queryOne<{ id: string; public_id: string | null; name: string; creator_user_id: string | null }>(
+          `SELECT p.id, p.public_id, p.name, p.creator_user_id
+           FROM ${table("projects")} p
+           WHERE p.name = ? AND ${ownerScope.sql}`,
+          [projectName, ...ownerScope.params]
+        )
       : undefined);
 
   if (!project) return respondError(res, "项目不存在", 400);
@@ -427,7 +473,7 @@ router.get("/generate/tasks/:taskId", (req, res) => {
 });
 
 
-router.post("/import", async (req, res) => {
+router.post("/import", async (req: AuthRequest, res) => {
   const projectId = String(req.body?.projectId || '').trim();
   const delimiter = normalizeImportDelimiter(String(req.body?.delimiter || ','));
   const content = String(req.body?.content || '');
@@ -435,10 +481,7 @@ router.post("/import", async (req, res) => {
   if (!projectId) return respondError(res, '项目不能为空', 400);
   if (!content.trim()) return respondError(res, '导入内容不能为空', 400);
 
-  const project = await queryOne<{ id: string; name: string }>(
-    `SELECT id, name FROM ${table("projects")} WHERE id = ?`,
-    [projectId]
-  );
+  const project = await getAccessibleProject(req, projectId);
   if (!project) return respondError(res, '项目不存在', 400);
 
   const lines = content
@@ -535,21 +578,38 @@ router.post("/import", async (req, res) => {
 
   return respond(res, { imported: items.length, items });
 });
-router.get("/export", async (_req, res) => {
+router.get("/export", async (req: AuthRequest, res) => {
   await syncCodeExpireAndStatus(Date.now());
+  const ownerScope = getProjectOwnerScope(req, "p");
+  const developerScope = getDeveloperKeywordScope(req.query?.developerKeyword, "u");
+  const where: string[] = [ownerScope.sql];
+  const params: any[] = [...ownerScope.params];
+  if (developerScope.sql) {
+    where.push(developerScope.sql);
+    params.push(...developerScope.params);
+  }
   const rows = await query(
-    `SELECT rc.*, p.name as resolved_project_name
+    `SELECT rc.*, p.name as resolved_project_name, p.creator_user_id as developer_id, u.username as developer_username, u.developer_code as developer_code
      FROM ${table("register_codes")} rc
      LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
-     ORDER BY rc.created_at DESC`
+     LEFT JOIN ${table("users")} u ON u.id = p.creator_user_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY rc.created_at DESC`,
+    params
   );
   return respond(res, { items: rows.map(mapCodeRow) });
 });
 
-router.get("/stats", async (_req, res) => {
+router.get("/stats", async (req: AuthRequest, res) => {
   await syncCodeExpireAndStatus(Date.now());
+  const ownerScope = getProjectOwnerScope(req, "p");
   const rows = await query<{ status: string; c: number }>(
-    `SELECT status, COUNT(*) as c FROM ${table("register_codes")} GROUP BY status`
+    `SELECT rc.status, COUNT(*) as c
+     FROM ${table("register_codes")} rc
+     LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+     WHERE ${ownerScope.sql}
+     GROUP BY rc.status`,
+    ownerScope.params
   );
   const stats = { total: 0, inUse: 0, unused: 0, frozen: 0, expired: 0, deleted: 0 };
   for (const r of rows) {
@@ -575,19 +635,25 @@ router.get("/stats", async (_req, res) => {
   return respond(res, stats);
 });
 
-router.delete("/cleanup-expired", async (_req, res) => {
+router.delete("/cleanup-expired", async (req: AuthRequest, res) => {
   const now = Date.now();
   await syncCodeExpireAndStatus(now);
+  const ownerScope = getProjectOwnerScope(req, "p");
   await execute(
     `UPDATE ${table("register_codes")}
      SET status = 'deleted'
-     WHERE status = 'expired' AND expire_at IS NOT NULL AND expire_at < ?`,
-    [now]
+     WHERE status = 'expired'
+       AND expire_at IS NOT NULL
+       AND expire_at < ?
+       AND project_id IN (
+         SELECT p.id FROM ${table("projects")} p WHERE ${ownerScope.sql}
+       )`,
+    [now, ...ownerScope.params]
   );
   return respond(res, {});
 });
 
-router.get("/", async (req, res) => {
+router.get("/", async (req: AuthRequest, res) => {
   const {
     status,
     projectId,
@@ -601,6 +667,7 @@ router.get("/", async (req, res) => {
     timeType,
     startTime,
     endTime,
+    developerKeyword,
     page = "1",
     pageSize = "10",
   } = req.query as Record<string, string>;
@@ -610,6 +677,15 @@ router.get("/", async (req, res) => {
 
   const where: string[] = [];
   const params: any[] = [];
+  const ownerScope = getProjectOwnerScope(req, "p");
+  where.push(ownerScope.sql);
+  params.push(...ownerScope.params);
+
+  const developerScope = getDeveloperKeywordScope(developerKeyword, "u");
+  if (developerScope.sql) {
+    where.push(developerScope.sql);
+    params.push(...developerScope.params);
+  }
 
   const kw = (keyword || code || "").trim();
   if (kw) {
@@ -674,11 +750,19 @@ router.get("/", async (req, res) => {
   const size = Math.min(Math.max(parseInt(pageSize, 10) || 10, 1), 200);
   const offset = (pageNum - 1) * size;
 
-  const totalRow = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${table("register_codes")} ${whereSql}`, params);
   const aliasedWhereSql = aliasRegisterCodeWhereSql(whereSql);
-  const rows = await query(`SELECT rc.*, p.name as resolved_project_name
+  const totalRow = await queryOne<{ c: number }>(
+    `SELECT COUNT(*) as c
+     FROM ${table("register_codes")} rc
+     LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+     LEFT JOIN ${table("users")} u ON u.id = p.creator_user_id
+     ${aliasedWhereSql}`,
+    params
+  );
+  const rows = await query(`SELECT rc.*, p.name as resolved_project_name, p.creator_user_id as developer_id, u.username as developer_username, u.developer_code as developer_code
     FROM ${table("register_codes")} rc
     LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+    LEFT JOIN ${table("users")} u ON u.id = p.creator_user_id
     ${aliasedWhereSql}
     ORDER BY rc.created_at DESC LIMIT ? OFFSET ?`, [
     ...params,
@@ -714,61 +798,71 @@ const updateCodeStatus = async (ids: string[], status: CodeStatus) => {
   );
 };
 
-router.patch("/:id/freeze", async (req, res) => {
-  await updateCodeStatus([req.params.id], "frozen");
+router.patch("/:id/freeze", async (req: AuthRequest, res) => {
+  const row = await resolveAccessibleCode(req);
+  if (!row) return respondError(res, "未找到注册码", 404);
+  await updateCodeStatus([row.id], "frozen");
   return respond(res, {});
 });
 
-router.patch("/:id/unfreeze", async (req, res) => {
-  await restoreCodeStatuses([req.params.id]);
+router.patch("/:id/unfreeze", async (req: AuthRequest, res) => {
+  const row = await resolveAccessibleCode(req);
+  if (!row) return respondError(res, "未找到注册码", 404);
+  await restoreCodeStatuses([row.id]);
   return respond(res, {});
 });
 
-router.patch("/:id/unbind", async (req, res) => {
-  await execute(`UPDATE ${table("register_codes")} SET machine_code = NULL, is_bound = 0 WHERE id = ?`, [req.params.id]);
+router.patch("/:id/unbind", async (req: AuthRequest, res) => {
+  const row = await resolveAccessibleCode(req);
+  if (!row) return respondError(res, "未找到注册码", 404);
+  await execute(`UPDATE ${table("register_codes")} SET machine_code = NULL, is_bound = 0 WHERE id = ?`, [row.id]);
   return respond(res, {});
 });
 
-router.patch("/:id/renew", async (req, res) => {
+router.patch("/:id/renew", async (req: AuthRequest, res) => {
   const addMs = getRenewDurationMs(req.body);
   if (addMs === 0) return respondError(res, "续费数量不能为 0", 400);
-  const row = await queryOne<{ expire_at: number | null }>(`SELECT expire_at FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+  const row = await resolveAccessibleCode(req);
+  if (!row) return respondError(res, "未找到注册码", 404);
   const now = Date.now();
   const base = getRenewBaseTime(row?.expire_at, addMs, now);
   const expireAt = base + addMs;
-  await execute(`UPDATE ${table("register_codes")} SET expire_at = ? WHERE id = ?`, [expireAt, req.params.id]);
+  await execute(`UPDATE ${table("register_codes")} SET expire_at = ? WHERE id = ?`, [expireAt, row.id]);
   return respond(res, { expireAt });
 });
 
-router.patch("/:id/offline", async (req, res) => {
-  await execute(`UPDATE ${table("register_codes")} SET is_online = 0 WHERE id = ?`, [req.params.id]);
+router.patch("/:id/offline", async (req: AuthRequest, res) => {
+  const row = await resolveAccessibleCode(req);
+  if (!row) return respondError(res, "未找到注册码", 404);
+  await execute(`UPDATE ${table("register_codes")} SET is_online = 0 WHERE id = ?`, [row.id]);
   return respond(res, {});
 });
 
-router.post("/batch/freeze", async (req, res) => {
-  await updateCodeStatus(Array.isArray(req.body?.ids) ? req.body.ids : [], "frozen");
-  return respond(res, {});
+router.post("/batch/freeze", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
+  await updateCodeStatus(ids, "frozen");
+  return respond(res, { count: ids.length });
 });
 
-router.post("/batch/unfreeze", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/unfreeze", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   await restoreCodeStatuses(ids);
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
-router.post("/batch/unbind", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/unbind", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   if (ids.length) {
     await execute(
       `UPDATE ${table("register_codes")} SET machine_code = NULL, is_bound = 0 WHERE id IN (${sqlPlaceholders(ids.length)})`,
       ids
     );
   }
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
-router.post("/batch/renew", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/renew", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   const addMs = getRenewDurationMs(req.body);
   if (addMs === 0) return respondError(res, "续费数量不能为 0", 400);
   if (!ids.length) return respond(res, {});
@@ -789,30 +883,31 @@ router.post("/batch/renew", async (req, res) => {
   return respond(res, { count: ids.length });
 });
 
-router.post("/batch/delete", async (req, res) => {
-  await updateCodeStatus(Array.isArray(req.body?.ids) ? req.body.ids : [], "deleted");
-  return respond(res, {});
+router.post("/batch/delete", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
+  await updateCodeStatus(ids, "deleted");
+  return respond(res, { count: ids.length });
 });
 
-router.post("/batch/hard-delete", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/hard-delete", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   if (!ids.length) return respond(res, {});
   await execute(`DELETE FROM ${table("register_codes")} WHERE id IN (${sqlPlaceholders(ids.length)}) AND status = 'deleted'`, ids);
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
-router.post("/batch/recover", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/recover", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   await restoreCodeStatuses(ids);
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
-router.post("/batch/project", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/project", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   const projectId = req.body?.projectId;
   if (!ids.length || !projectId) return respond(res, {});
-  const project = await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE id = ?`, [projectId]);
-  if (!project) return respondError(res, "项目不存在", 400);
+  const project = await getAccessibleProject(req, String(projectId));
+  if (!project) return respondError(res, "项目不存在或无权访问", 404);
   await execute(
     `UPDATE ${table("register_codes")}
      SET project_id = ?, project_name = ?
@@ -822,6 +917,13 @@ router.post("/batch/project", async (req, res) => {
   return respond(res, {});
 });
 
+/**
+ * 批量更新注册码备注
+ *
+ * @param ids 当前用户可访问的注册码 ID 列表
+ * @param remark 需要写入的备注内容
+ * @returns 无返回值
+ */
 const batchUpdateRemark = async (ids: string[], remark: any) => {
   if (!ids.length) return;
   await execute(
@@ -830,21 +932,21 @@ const batchUpdateRemark = async (ids: string[], remark: any) => {
   );
 };
 
-router.post("/batch/remark", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/remark", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   await batchUpdateRemark(ids, req.body?.remark);
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
 // 兼容旧/文档接口：/api/codes/batch/update-remark
-router.post("/batch/update-remark", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/update-remark", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   await batchUpdateRemark(ids, req.body?.remark);
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
-router.post("/batch/unbind-password", async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+router.post("/batch/unbind-password", async (req: AuthRequest, res) => {
+  const ids = await getAccessibleCodeIds(req, Array.isArray(req.body?.ids) ? req.body.ids : []);
   const password = req.body?.password ?? "";
   if (ids.length) {
     await execute(
@@ -852,35 +954,41 @@ router.post("/batch/unbind-password", async (req, res) => {
       [password, ...ids]
     );
   }
-  return respond(res, {});
+  return respond(res, { count: ids.length });
 });
 
 router.post("/batch/blacklist-ip", (_req, res) => {
   return respond(res, {});
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (req: AuthRequest, res) => {
+  const accessible = await resolveAccessibleCode(req);
+  if (!accessible) return respondError(res, "未找到注册码", 404);
   const row = await queryOne(
-    `SELECT rc.*, p.name as resolved_project_name
+    `SELECT rc.*, p.name as resolved_project_name,
+            p.creator_user_id as developer_id,
+            u.username as developer_username,
+            u.developer_code as developer_code
      FROM ${table("register_codes")} rc
      LEFT JOIN ${table("projects")} p ON p.id = rc.project_id
+     LEFT JOIN ${table("users")} u ON u.id = p.creator_user_id
      WHERE rc.id = ?`,
-    [req.params.id]
+    [accessible.id]
   );
   if (!row) return respondError(res, "未找到注册码", 404);
   return respond(res, mapCodeRow(row));
 });
 
-router.put("/:id", async (req, res) => {
-  const existing = await queryOne<{ id: string }>(`SELECT id FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+router.put("/:id", async (req: AuthRequest, res) => {
+  const existing = await resolveAccessibleCode(req);
   if (!existing) return respondError(res, "未找到注册码", 404);
 
   const body = req.body || {};
   let projectId: string | undefined;
   let projectName: string | undefined;
   if (body.projectId) {
-    const proj = await queryOne<{ id: string; name: string }>(`SELECT id, name FROM ${table("projects")} WHERE id = ?`, [body.projectId]);
-    if (!proj) return respondError(res, "项目不存在", 400);
+    const proj = await getAccessibleProject(req, String(body.projectId));
+    if (!proj) return respondError(res, "项目不存在或无权访问", 400);
     projectId = proj.id;
     projectName = proj.name;
   }
@@ -911,31 +1019,35 @@ router.put("/:id", async (req, res) => {
       typeof body.customerInfo === "undefined" ? null : body.customerInfo,
       typeof body.remark === "undefined" ? null : body.remark,
       typeof body.expireAt === "undefined" ? null : body.expireAt,
-      req.params.id,
+      existing.id,
     ]
   );
   return respond(res, {});
 });
 
 // 修改客户信息
-router.patch("/:id/customer-info", async (req, res) => {
-  const existing = await queryOne<{ id: string }>(`SELECT id FROM ${table("register_codes")} WHERE id = ?`, [req.params.id]);
+router.patch("/:id/customer-info", async (req: AuthRequest, res) => {
+  const existing = await resolveAccessibleCode(req);
   if (!existing) return respondError(res, "未找到注册码", 404);
 
   const customerInfo = typeof req.body?.customerInfo === "undefined" ? null : req.body.customerInfo;
   if (customerInfo !== null && typeof customerInfo !== "string") return respondError(res, "customerInfo 必须是字符串", 400);
 
-  await execute(`UPDATE ${table("register_codes")} SET customer_info = ? WHERE id = ?`, [customerInfo, req.params.id]);
+  await execute(`UPDATE ${table("register_codes")} SET customer_info = ? WHERE id = ?`, [customerInfo, existing.id]);
   return respond(res, {});
 });
 
-router.delete("/:id", async (req, res) => {
-  await updateCodeStatus([req.params.id], "deleted");
+router.delete("/:id", async (req: AuthRequest, res) => {
+  const existing = await resolveAccessibleCode(req);
+  if (!existing) return respondError(res, "未找到注册码", 404);
+  await updateCodeStatus([existing.id], "deleted");
   return respond(res, {});
 });
 
-router.delete("/:id/hard-delete", async (req, res) => {
-  await execute(`DELETE FROM ${table("register_codes")} WHERE id = ? AND status = 'deleted'`, [req.params.id]);
+router.delete("/:id/hard-delete", async (req: AuthRequest, res) => {
+  const existing = await resolveAccessibleCode(req);
+  if (!existing) return respondError(res, "未找到注册码", 404);
+  await execute(`DELETE FROM ${table("register_codes")} WHERE id = ? AND status = 'deleted'`, [existing.id]);
   return respond(res, {});
 });
 

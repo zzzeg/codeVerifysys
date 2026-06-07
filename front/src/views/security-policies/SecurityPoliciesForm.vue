@@ -301,8 +301,8 @@ onMounted(async () => {
     </template>
 
     <div class="form-actions">
-      <el-button @click="router.push('/security-policies/list')">返回列表</el-button>
-      <el-button type="primary" @click="savePolicy">确认保存</el-button>
+      <el-button type="primary" @click="savePolicy">确认</el-button>
+      <el-button @click="router.push('/security-policies/list')">返回</el-button>
     </div>
   </div>
 </template>

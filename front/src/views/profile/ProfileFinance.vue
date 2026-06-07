@@ -288,17 +288,22 @@ onMounted(async () => {
   color: #606266;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 640px) {
   .finance-cards {
     grid-template-columns: 1fr 1fr;
   }
 
   .finance-value {
-    font-size: 20px;
+    font-size: 16px;
+  }
+
+  .finance-card-icon {
+    width: 30px;
+    height: 30px;
   }
 
   .finance-card {
-    padding: 12px;
+    padding: 8px;
     gap: 8px;
   }
 }

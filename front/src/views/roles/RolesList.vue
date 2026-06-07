@@ -196,7 +196,7 @@ onMounted(fetchRoles)
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="160">
         <template #default="{ row }">
           <el-button v-if="row.isSystem" link type="primary" size="small" @click="openView(row)">查看权限</el-button>
           <el-button link type="primary" size="small" @click="openEdit(row)">
@@ -208,36 +208,16 @@ onMounted(fetchRoles)
     </el-table>
 
     <div v-if="total > pageSize" class="pager">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+        :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
+        @size-change="handleSizeChange" />
     </div>
 
-    <el-dialog
-      v-model="dialogVisible"
-      :title="dialogTitle"
-      width="560px"
-      transition="none"
-      destroy-on-close
-      append-to-body
-      class="role-dialog"
-      @closed="resetForm"
-    >
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px" transition="none" destroy-on-close
+      append-to-body class="role-dialog" @closed="resetForm">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="role-form">
-        <el-alert
-          v-if="isSystemMode"
-          class="role-form-alert"
-          type="info"
-          :closable="false"
-          show-icon
-          :title="canEditSystemPermissions ? '当前账号为超级管理员，可维护系统角色的权限与说明。' : '系统内置角色受保护，只能查看权限或维护说明，不能删除或修改核心权限。'"
-        />
+        <el-alert v-if="isSystemMode" class="role-form-alert" type="info" :closable="false" show-icon
+          :title="canEditSystemPermissions ? '当前账号为超级管理员，可维护系统角色的权限与说明。' : '系统内置角色受保护，只能查看权限或维护说明，不能删除或修改核心权限。'" />
         <el-form-item v-if="dialogMode === 'create'" label="创建模板">
           <el-select v-model="baseRoleId" disabled style="width: 100%">
             <el-option label="开发者模板（注册默认角色）" value="role-developer" />
@@ -250,20 +230,11 @@ onMounted(fetchRoles)
           <el-input v-model="form.description" :disabled="isReadonly" placeholder="请输入角色说明" />
         </el-form-item>
         <el-form-item label="权限范围">
-          <el-select
-            v-model="form.permissions"
-            multiple
-            filterable
+          <el-select v-model="form.permissions" multiple filterable
             :disabled="dialogMode === 'view' || (dialogMode === 'system' && !canEditSystemPermissions)"
-            placeholder="请选择权限范围"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in isSystemMode ? permissionOptions : assignablePermissionOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            >
+            placeholder="请选择权限范围" style="width: 100%">
+            <el-option v-for="item in isSystemMode ? permissionOptions : assignablePermissionOptions" :key="item.value"
+              :label="item.label" :value="item.value">
               <div class="permission-option">
                 <span>{{ item.label }}</span>
                 <small>{{ item.value }}</small>

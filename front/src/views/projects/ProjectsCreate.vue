@@ -78,12 +78,27 @@ const validateDeviceTrialTime = (_rule: unknown, value: number, callback: (error
 }
 
 /**
+ *校验是否输入解绑密码
+ **/
+const requiredBindpassword = computed(() => form.bindDevice && form.clientUnbind)
+
+const validateUnbindPassword = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if ((form.bindDevice || form.clientUnbind) && !value.trim() && requiredBindpassword.value) {
+    callback(new Error('机器码绑定 + 客户端自己解绑 同时启用时，解绑密码不能为空'))
+    return
+  }
+  callback()
+}
+
+
+/**
  * 校验解绑扣除分钟数
  * @param _rule Element Plus 表单规则对象，当前方法不使用
  * @param value 当前输入的解绑扣除分钟数
  * @param callback 校验完成回调，传入 Error 表示校验失败
  * @returns 无返回值，通过 callback 返回校验结果
  */
+
 const validateUnbindDeductMinutes = (_rule: unknown, value: number, callback: (error?: Error) => void) => {
   if (isTrialModeEnabled.value) {
     callback()
@@ -102,6 +117,7 @@ const rules: FormRules<typeof form> = {
   trialTime: [{ validator: validateTrialTime, trigger: 'blur' }],
   deviceTrialTime: [{ validator: validateDeviceTrialTime, trigger: 'blur' }],
   unbindDeductMinutes: [{ validator: validateUnbindDeductMinutes, trigger: 'blur' }],
+  unbindPassword: [{ validator: validateUnbindPassword, trigger: 'blur' }],
 }
 
 /**
@@ -216,7 +232,7 @@ fetchProject()
         <span class="muted">单位 分钟，最大解绑扣时为720分钟(半天，12小时)</span>
       </el-form-item>
 
-      <el-form-item label="开启机器码绑定:" required>
+      <el-form-item label="开启机器码绑定:">
         <el-switch v-model="form.bindDevice" />
         <span class="switch-status-text">{{ form.bindDevice ? '启用' : '禁用' }}</span>
       </el-form-item>
@@ -231,7 +247,7 @@ fetchProject()
         <span class="switch-status-text">{{ form.vip ? '启用' : '禁用' }}</span>
       </el-form-item>
 
-      <el-form-item label="解绑密码:">
+      <el-form-item label="解绑密码:" prop="unbindPassword" :required="requiredBindpassword">
         <el-input v-model="form.unbindPassword" style="width: 180px" />
         <span class="muted">当机器码绑定或客户端自己解绑为关闭时，解绑密码无效</span>
       </el-form-item>

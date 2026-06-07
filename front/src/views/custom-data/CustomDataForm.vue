@@ -121,8 +121,8 @@ onMounted(async () => {
         <el-input v-model="form.remark" type="textarea" :rows="4" />
       </el-form-item>
       <el-form-item label=" ">
-        <el-button @click="router.push('/custom-data/list')">返回列表</el-button>
-        <el-button type="primary" @click="saveData">确认保存</el-button>
+        <el-button type="primary" @click="saveData">确认</el-button>
+        <el-button @click="router.push('/custom-data/list')">返回</el-button>
       </el-form-item>
     </el-form>
   </div>

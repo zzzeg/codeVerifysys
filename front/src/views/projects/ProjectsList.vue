@@ -1,18 +1,23 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../../utils/request'
+import { useAuthStore } from '../../store/auth'
+import { isAdminUser } from '../../utils/authScope'
 
 interface ProjectItem {
   id: string
+  publicId?: string
   name: string
   description?: string
   remark?: string
+  developerUsername?: string
+  developerCode?: string
 }
 
-const filters = reactive({ keyword: '', notice: '' })
+const filters = reactive({ keyword: '', notice: '', developerKeyword: '' })
 const list = ref<ProjectItem[]>([])
 const loading = ref(false)
 const page = ref(1)
@@ -21,6 +26,8 @@ const total = ref(0)
 const filterDrawerOpen = ref(false)
 const tableHeight = 'var(--vs-table-max-height)'
 const router = useRouter()
+const auth = useAuthStore()
+const canViewDeveloper = computed(() => isAdminUser(auth.currentUser))
 
 const normalizeList = (payload: unknown): ProjectItem[] => {
   if (Array.isArray(payload)) return payload as ProjectItem[]
@@ -34,7 +41,14 @@ const normalizeList = (payload: unknown): ProjectItem[] => {
 const fetchList = async () => {
   loading.value = true
   try {
-    const resp = await request.get('/api/projects', { params: { keyword: filters.keyword, notice: filters.notice, page: page.value, pageSize: pageSize.value } })
+    const params: Record<string, string | number> = {
+      keyword: filters.keyword,
+      notice: filters.notice,
+      page: page.value,
+      pageSize: pageSize.value,
+    }
+    if (canViewDeveloper.value && filters.developerKeyword) params.developerKeyword = filters.developerKeyword
+    const resp = await request.get('/api/projects', { params })
     const data = resp?.data?.data
     list.value = normalizeList(data)
     total.value = Number((data as { total?: number })?.total || list.value.length)
@@ -57,6 +71,7 @@ const handleSearch = async () => {
 const resetSearch = async () => {
   filters.keyword = ''
   filters.notice = ''
+  filters.developerKeyword = ''
   page.value = 1
   await fetchList()
   filterDrawerOpen.value = false
@@ -95,7 +110,7 @@ const goToProjectCustomData = (row: ProjectItem) => {
 }
 
 const editProject = (row: ProjectItem) => {
-  router.push(`/projects/edit/${row.id}`)
+  router.push(`/projects/edit/${row.publicId || row.id}`)
 }
 
 const removeProject = async (row: ProjectItem) => {
@@ -129,6 +144,8 @@ onBeforeUnmount(() => {
         </el-select>
         <span class="label">项目备注：</span>
         <el-input v-model="filters.notice" style="width: 180px" />
+        <span v-if="canViewDeveloper" class="label">开发者：</span>
+        <el-input v-if="canViewDeveloper" v-model="filters.developerKeyword" style="width: 180px" clearable />
         <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
       </div>
     </div>
@@ -143,6 +160,8 @@ onBeforeUnmount(() => {
           </el-select>
           <label>项目备注</label>
           <el-input v-model="filters.notice" clearable />
+          <label v-if="canViewDeveloper">开发者</label>
+          <el-input v-if="canViewDeveloper" v-model="filters.developerKeyword" clearable />
         </div>
         <div class="mobile-filter-actions">
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
@@ -153,6 +172,11 @@ onBeforeUnmount(() => {
 
     <el-table :data="list" :max-height="tableHeight" v-loading="loading">
       <el-table-column prop="name" label="项目名称" min-width="100" />
+      <el-table-column v-if="canViewDeveloper" label="开发者" min-width="110">
+        <template #default="{ row }">
+          {{ row.developerUsername || row.developerCode || '-' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="description" label="公告" min-width="100" />
       <el-table-column prop="remark" label="备注" min-width="100" />
       <el-table-column label="操作" width="220" align="center">

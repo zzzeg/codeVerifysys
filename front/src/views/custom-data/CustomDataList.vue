@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
+import { useAuthStore } from '../../store/auth'
+import { isAdminUser } from '../../utils/authScope'
 
 interface ProjectOption {
   id: string
@@ -12,8 +14,11 @@ interface ProjectOption {
 
 interface CustomDataItem {
   id: string
+  publicId?: string
   projectId: string
   projectName?: string
+  developerUsername?: string
+  developerCode?: string
   key: string
   value: string
   remark?: string
@@ -21,13 +26,15 @@ interface CustomDataItem {
 
 const router = useRouter()
 const route = useRoute()
+const auth = useAuthStore()
 const list = ref<CustomDataItem[]>([])
 const loading = ref(false)
 const total = ref(0)
 const projects = ref<ProjectOption[]>([])
-const query = reactive({ projectId: '', key: '', remark: '', page: 1, pageSize: 10 })
+const query = reactive({ projectId: '', key: '', remark: '', developerKeyword: '', page: 1, pageSize: 10 })
 const filterDrawerOpen = ref(false)
 const tableMaxHeight = 'var(--vs-table-max-height)'
+const canViewDeveloper = computed(() => isAdminUser(auth.currentUser))
 
 const fetchProjects = async () => {
   const resp = await request.get('/api/projects', { params: { page: 1, pageSize: 200 } })
@@ -42,6 +49,7 @@ const fetchData = async () => {
     if (query.projectId) params.projectId = query.projectId
     if (query.key) params.key = query.key
     if (query.remark) params.remark = query.remark
+    if (canViewDeveloper.value && query.developerKeyword) params.developerKeyword = query.developerKeyword
     const resp = await request.get('/api/custom-data', { params })
     list.value = resp.data.data.list || []
     total.value = resp.data.data.total || 0
@@ -60,6 +68,7 @@ const resetSearch = () => {
   query.projectId = ''
   query.key = ''
   query.remark = ''
+  query.developerKeyword = ''
   query.page = 1
   query.pageSize = 10
   fetchData()
@@ -131,6 +140,8 @@ watch(
         <el-input v-model="query.key" style="width: 220px" clearable />
         <span class="label">备注：</span>
         <el-input v-model="query.remark" style="width: 220px" clearable />
+        <span v-if="canViewDeveloper" class="label">开发者：</span>
+        <el-input v-if="canViewDeveloper" v-model="query.developerKeyword" style="width: 180px" clearable />
         <el-button type="primary" class="vs-ref-button" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
       </div>
@@ -149,6 +160,8 @@ watch(
           <el-input v-model="query.key" clearable />
           <label>备注</label>
           <el-input v-model="query.remark" clearable />
+          <label v-if="canViewDeveloper">开发者</label>
+          <el-input v-if="canViewDeveloper" v-model="query.developerKeyword" clearable />
         </div>
         <div class="mobile-filter-actions">
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
@@ -159,12 +172,17 @@ watch(
 
     <el-table :data="list" :max-height="tableMaxHeight" v-loading="loading" style="width: 100%">
       <el-table-column prop="projectName" label="项目名称" min-width="120" />
+      <el-table-column v-if="canViewDeveloper" label="开发者" min-width="110">
+        <template #default="{ row }">
+          {{ row.developerUsername || row.developerCode || '-' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="key" label="Key 值" min-width="100" />
       <el-table-column prop="value" label="Value 值" min-width="120" show-overflow-tooltip />
       <el-table-column prop="remark" label="备注" min-width="180" show-overflow-tooltip />
       <el-table-column label="操作" width="140" align="center">
         <template #default="{ row }">
-          <el-button size="small" type="primary" @click="router.push(`/custom-data/edit/${row.id}`)">编辑</el-button>
+          <el-button size="small" type="primary" @click="router.push(`/custom-data/edit/${row.publicId || row.id}`)">编辑</el-button>
           <el-button size="small" type="danger" @click="removeData(row)">删除</el-button>
         </template>
       </el-table-column>

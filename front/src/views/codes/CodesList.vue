@@ -5,6 +5,9 @@ import { Search, Refresh, Download, Upload, Delete, ArrowDown, ArrowUp } from '@
 import { useRoute } from 'vue-router'
 import request from '../../utils/request'
 import { formatDateTime } from '../../utils/datetime'
+import { useAuthStore } from '../../store/auth'
+import { isAdminUser } from '../../utils/authScope'
+import { copyText } from '../../utils/clipboard'
 
 interface CodeItem {
   id: string
@@ -26,6 +29,9 @@ interface CodeItem {
   saleType?: string
   createdBy?: string
   createdAt?: number
+  developerId?: string
+  developerUsername?: string
+  developerCode?: string
 }
 
 // 筛选条件
@@ -43,12 +49,14 @@ const filters = reactive({
   cardTypes: [] as Array<'trial' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'half_year' | 'year' | 'permanent'>,
   // 其他
   projectId: '',
+  developerKeyword: '',
   onlineStatus: '', // all, online, offline
   saleType: '', // all, author_generated, auto_issue
   pageSize: 20,
   currentPage: 1,
 })
 
+const auth = useAuthStore()
 const list = ref<CodeItem[]>([])
 const loading = ref(false)
 const total = ref(0)
@@ -94,6 +102,7 @@ const listRequestId = ref(0)
 const projectsRequestId = ref(0)
 
 const hasSelection = computed(() => selectedRows.value.length > 0)
+const canViewDeveloper = computed(() => isAdminUser(auth.currentUser))
 const deletedSelectionCount = computed(() => selectedRows.value.filter((row) => row.status === 'deleted').length)
 const hasDeletedSelection = computed(() => deletedSelectionCount.value > 0)
 const hasOnlyDeletedSelection = computed(() => hasSelection.value && deletedSelectionCount.value === selectedRows.value.length)
@@ -107,6 +116,7 @@ const activeFilterCount = computed(() => {
     filters.code,
     filters.machineCode,
     filters.projectId,
+    canViewDeveloper.value ? filters.developerKeyword : '',
     filters.onlineStatus && filters.onlineStatus !== 'all' ? filters.onlineStatus : '',
     filters.saleType && filters.saleType !== 'all' ? filters.saleType : '',
   ].filter(Boolean).length
@@ -206,6 +216,7 @@ const buildQueryParams = (page = filters.currentPage, pageSize = filters.pageSiz
   if (filters.operationFlags.includes('bound')) params.isBound = true
   if (filters.cardTypes.length) params.cardType = filters.cardTypes.join(',')
   if (filters.projectId) params.projectId = filters.projectId
+  if (canViewDeveloper.value && filters.developerKeyword) params.developerKeyword = filters.developerKeyword
   if (filters.onlineStatus && filters.onlineStatus !== 'all') params.isOnline = filters.onlineStatus === 'online'
   if (filters.saleType && filters.saleType !== 'all') params.saleType = filters.saleType
 
@@ -306,6 +317,7 @@ const resetFilters = () => {
     operationFlags: [],
     cardTypes: [],
     projectId: '',
+    developerKeyword: '',
     onlineStatus: '',
     saleType: '',
     pageSize: 20,
@@ -721,6 +733,14 @@ const statusMap: Record<string, { text: string; color: string }> = {
 const getStatusText = (status?: string) => statusMap[status || '']?.text || '未知状态'
 const getStatusColor = (status?: string) => statusMap[status || '']?.color || '#909399'
 
+const copyToClipboard = async (text: string) => {
+  const ok = await copyText(text)
+  if (ok) {
+    ElMessage.success('复制成功')
+    return
+  }
+  ElMessage.error('复制失败，请长按文本手动复制')
+}
 
 
 // 分页变化
@@ -898,21 +918,6 @@ const handleBatchAddIP = async () => {
   }
 }
 
-// 保存客户信息（示例：调用后端接口）
-const saveUserMsg = async () => {
-  if (!currentRow.value) return
-
-  try {
-    await request.patch(`/api/codes/${currentRow.value.id}/customer-info`, {
-      customerInfo: currentRow.value.userMsg,
-    })
-    ElMessage.success('客户信息保存成功')
-    fetchList()
-  } catch (err: any) {
-    ElMessage.error(err.response?.data?.message || '保存失败')
-  }
-}
-
 onMounted(() => {
   updateViewportState()
   window.addEventListener('resize', updateViewportState)
@@ -1024,6 +1029,10 @@ watch(
             <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
 
+          <span v-if="canViewDeveloper" class="filter-label">开发者：</span>
+          <el-input v-if="canViewDeveloper" v-model="filters.developerKeyword" size="small" style="width: 150px"
+            clearable />
+
           <span class="filter-label">在线状态：</span>
           <el-select v-model="filters.onlineStatus" size="small" style="width: 100px">
             <el-option label="所有" value="all" />
@@ -1098,6 +1107,9 @@ watch(
               <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
             </el-select>
 
+            <span v-if="canViewDeveloper" class="filter-label">开发者：</span>
+            <el-input v-if="canViewDeveloper" v-model="filters.developerKeyword" size="small" clearable />
+
             <span class="filter-label">在线状态：</span>
             <el-select v-model="filters.onlineStatus" size="small">
               <el-option label="所有" value="all" />
@@ -1139,7 +1151,7 @@ watch(
         <el-button link type="primary" size="small" @click="handleBatchChangeProject">改项目类型</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangeNote">改备注</el-button>
         <el-button link type="primary" size="small" @click="handleBatchDelete">{{ hasDeletedSelection ? '彻底删除' : '删除'
-          }}</el-button>
+        }}</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecover">恢复</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecharge">续费</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangePassword">重置解绑密码</el-button>
@@ -1162,6 +1174,11 @@ watch(
             </template>
           </el-table-column>
           <el-table-column prop="projectName" label="项目类型" min-width="80" />
+          <el-table-column v-if="canViewDeveloper" label="开发者" min-width="110">
+            <template #default="{ row }">
+              {{ row.developerUsername || row.developerCode || '-' }}
+            </template>
+          </el-table-column>
           <el-table-column label="状态" min-width="78">
             <template #default="{ row }">
               <span :style="{ color: getStatusColor(row.status) }">
@@ -1184,7 +1201,7 @@ watch(
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="remark" label="备注" min-width="126">
+          <el-table-column prop="remark" label="备注" min-width="100">
             <template #default="{ row }">
               <div class="time-info" :title="row.remark">
                 <div>{{ row.remark }}</div>
@@ -1271,70 +1288,105 @@ watch(
       </div>
 
       <div v-if="currentRow" class="codes-detail-body">
-        <table class="detail-table">
-          <tbody>
-            <tr>
-              <td class="label-cell">注册码</td>
-              <td class="value-cell">{{ currentRow.code }}</td>
-              <td class="label-cell">项目名称</td>
-              <td class="value-cell">{{ currentRow.projectName || currentRow.projectId }}</td>
-              <td class="label-cell">解绑密码</td>
-              <td class="value-cell">{{ currentRow.unbindPassword || '未设置' }}</td>
-              <td class="label-cell">卡类型</td>
-              <td class="value-cell">{{ cardTypeMap[currentRow.cardType] || currentRow.cardType }}</td>
-            </tr>
-            <tr>
-              <td class="label-cell">创建时间</td>
-              <td class="value-cell">{{ formatDateTime(currentRow.createdAt) || '-' }}</td>
-              <td class="label-cell">激活时间</td>
-              <td class="value-cell">{{ formatDateTime(currentRow.activatedAt) || '未激活' }}</td>
-              <td class="label-cell">到期时间</td>
-              <td class="value-cell">{{ formatDateTime(currentRow.expireAt) || '未设置' }}</td>
-              <td class="label-cell">最后登录</td>
-              <td class="value-cell">{{ formatDateTime(currentRow.lastLoginAt) || '-' }}</td>
-            </tr>
-            <tr>
-              <td class="label-cell">使用状态</td>
-              <td class="value-cell">
+        <div class="detail-grid">
+          <el-row class="detail-grid-row">
+            <el-col :span="8" class="detail-field">
+              <div class="label-cell">注册码</div>
+              <div class="value-cell">
+                {{ currentRow.code }}
+                <el-button type="text" size="small" @click="copyToClipboard(currentRow.code)">复制</el-button>
+              </div>
+            </el-col>
+            <el-col :span="6" class="detail-field">
+              <div class="label-cell">项目名称</div>
+              <div class="value-cell">{{ currentRow.projectName || currentRow.projectId }}</div>
+            </el-col>
+            <el-col :span="4" class="detail-field">
+              <div class="label-cell">解绑密码</div>
+              <div class="value-cell">{{ currentRow.unbindPassword || '未设置' }}</div>
+            </el-col>
+            <el-col :span="6" class="detail-field">
+              <div class="label-cell">卡类型</div>
+              <div class="value-cell">{{ cardTypeMap[currentRow.cardType] || currentRow.cardType }}</div>
+            </el-col>
+          </el-row>
+          <el-row class="detail-grid-row">
+            <el-col :span="8" class="detail-field">
+              <div class="label-cell">创建时间</div>
+              <div class="value-cell">{{ formatDateTime(currentRow.createdAt) || '-' }}</div>
+            </el-col>
+            <el-col :span="6" class="detail-field">
+              <div class="label-cell">激活时间</div>
+              <div class="value-cell">{{ formatDateTime(currentRow.activatedAt) || '未激活' }}</div>
+            </el-col>
+            <el-col :span="4" class="detail-field">
+              <div class="label-cell">到期时间</div>
+              <div class="value-cell">{{ formatDateTime(currentRow.expireAt) || '未设置' }}</div>
+            </el-col>
+            <el-col :span="6" class="detail-field">
+              <div class="label-cell">最后登录</div>
+              <div class="value-cell">{{ formatDateTime(currentRow.lastLoginAt) || '-' }}</div>
+            </el-col>
+          </el-row>
+          <el-row class="detail-grid-row">
+            <el-col :span="8" class="detail-field">
+              <div class="label-cell">使用状态</div>
+              <div class="value-cell">
                 <span :style="{ color: getStatusColor(currentRow.status) }">
                   {{ getStatusText(currentRow.status) }}
                 </span>
-              </td>
-              <td class="label-cell">在线状态</td>
-              <td class="value-cell">
+              </div>
+            </el-col>
+            <el-col :span="6" class="detail-field">
+              <div class="label-cell">在线状态</div>
+              <div class="value-cell">
                 <span :style="{ color: currentRow.isOnline ? '#67c23a' : '#909399' }">
                   {{ currentRow.isOnline ? '在线' : '离线' }}
                 </span>
-              </td>
-              <td class="label-cell">登录IP地址</td>
-              <td class="value-cell">{{ currentRow.lastLoginIp || '-' }}</td>
-              <td class="label-cell">是否绑定</td>
-              <td class="value-cell">{{ currentRow.isBound ? '已绑定' : '未绑定' }}</td>
-            </tr>
-            <tr>
-              <td class="label-cell">机器码</td>
-              <td class="value-cell" colspan="3">{{ currentRow.machineCode || '未绑定' }}</td>
-              <td class="label-cell">客户信息</td>
-              <td class="value-cell" colspan="3">
-                <div class="detail-edit-row">
-                  <el-input v-model="currentRow.userMsg" size="small" placeholder="请输入客户信息" />
-                  <el-button size="small" type="primary" @click="saveUserMsg">保存</el-button>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td class="label-cell">备注</td>
-              <td class="value-cell" colspan="7">
-                <el-input v-model="currentRow.remark" size="small" readonly />
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </div>
+            </el-col>
+            <el-col :span="4" class="detail-field">
+              <div class="label-cell">登录IP地址</div>
+              <div class="value-cell">{{ currentRow.lastLoginIp || '-' }}</div>
+            </el-col>
+            <el-col :span="6" class="detail-field">
+              <div class="label-cell">是否绑定</div>
+              <div class="value-cell">{{ currentRow.isBound ? '已绑定' : '未绑定' }}</div>
+            </el-col>
+          </el-row>
+          <el-row class="detail-grid-row">
+            <el-col :span="14" class="detail-field detail-field-wide">
+              <div class="label-cell">机器码</div>
+              <div class="value-cell">{{ currentRow.machineCode || '未绑定' }}</div>
+            </el-col>
+            <el-col :span="10" class="detail-field detail-field-wide">
+              <div class="label-cell">客户信息</div>
+              <div class="value-cell">
+                <el-input v-model="currentRow.userMsg" readonly />
+                <!-- <div class="detail-edit-row">
+                  
+                 <el-button size="small" type="primary" @click="saveUserMsg">保存</el-button> 
+                </div>-->
+              </div>
+            </el-col>
+          </el-row>
+          <el-row class="detail-grid-row">
+            <el-col :span="24" class="detail-field detail-field-full">
+              <div class="label-cell">备注</div>
+              <div class="value-cell">
+                <el-input v-model="currentRow.remark" readonly />
+              </div>
+            </el-col>
+          </el-row>
+        </div>
 
         <div class="detail-card-list">
           <div class="detail-card-item full">
             <span>注册码</span>
-            <strong>{{ currentRow.code }}</strong>
+            <strong>
+              {{ currentRow.code }}
+              <el-button type="text" size="small" @click="copyToClipboard(currentRow.code)">复制</el-button>
+            </strong>
           </div>
           <div class="detail-card-item">
             <span>项目名称</span>
@@ -1347,12 +1399,12 @@ watch(
           <div class="detail-card-item">
             <span>使用状态</span>
             <strong :style="{ color: getStatusColor(currentRow.status) }">{{ getStatusText(currentRow.status)
-              }}</strong>
+            }}</strong>
           </div>
           <div class="detail-card-item">
             <span>在线状态</span>
             <strong :style="{ color: currentRow.isOnline ? '#67c23a' : '#909399' }">{{ currentRow.isOnline ? '在线' : '离线'
-            }}</strong>
+              }}</strong>
           </div>
           <div class="detail-card-item">
             <span>创建时间</span>
@@ -1382,18 +1434,15 @@ watch(
             <span>是否绑定</span>
             <strong>{{ currentRow.isBound ? '已绑定' : '未绑定' }}</strong>
           </div>
-          <div class="detail-card-item full">
+          <div class="detail-card-item ">
             <span>机器码</span>
             <strong>{{ currentRow.machineCode || '未绑定' }}</strong>
           </div>
-          <div class="detail-card-item full">
+          <div class="detail-card-item ">
             <span>客户信息</span>
-            <div class="detail-edit-row">
-              <el-input v-model="currentRow.userMsg" size="small" placeholder="请输入客户信息" />
-              <el-button size="small" type="primary" @click="saveUserMsg">保存</el-button>
-            </div>
+            <strong>{{ currentRow.userMsg || '-' }}</strong>
           </div>
-          <div class="detail-card-item full">
+          <div class="detail-card-item ">
             <span>备注</span>
             <strong>{{ currentRow.remark || '-' }}</strong>
           </div>
@@ -1501,7 +1550,7 @@ watch(
           <div class="import-guide">
             <p>从其它系统导出的注册码数据，可直接按当前选择的分割符导入。</p>
             <p>导入格式支持：注册码{{ getDelimiterLabel(importForm.delimiter) }}激活时间{{ getDelimiterLabel(importForm.delimiter)
-            }}到期时间{{ getDelimiterLabel(importForm.delimiter) }}卡类型。</p>
+              }}到期时间{{ getDelimiterLabel(importForm.delimiter) }}卡类型。</p>
             <p>示例：AAAAAAA{{ importForm.delimiter === '\t' ? ' ' : importForm.delimiter }}2016-01-01 00:00:00{{
               importForm.delimiter === '\t' ? ' ' : importForm.delimiter }}2016-02-01 00:00:00{{ importForm.delimiter
                 ===
@@ -1749,27 +1798,53 @@ watch(
   gap: 8px;
 }
 
-.detail-table {
+.detail-grid {
   width: 100%;
-  border-collapse: collapse;
   font-size: 13px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
 
-  td {
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    padding: 10px 12px;
+  .detail-grid-row {
+    align-items: stretch;
+  }
+
+  .detail-field {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    border-right: 1px solid rgba(148, 163, 184, 0.18);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  .detail-field-wide {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+
+  .detail-field-full {
+    grid-template-columns: 100px minmax(0, 1fr);
   }
 
   .label-cell {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 10px 12px;
     background: #f7faff;
     font-weight: 500;
     color: #607089;
-    width: 100px;
     text-align: right;
   }
 
   .value-cell {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 12px;
     color: #172033;
     word-break: break-all;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -2286,7 +2361,7 @@ v-deep .el-checkbox {
     overflow: auto;
   }
 
-  .detail-table {
+  .detail-grid {
     display: none;
   }
 

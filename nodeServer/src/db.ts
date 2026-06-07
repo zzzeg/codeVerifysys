@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "crypto";
 
 export const uuid = () => randomUUID();
 export const randomCode32 = () => randomBytes(16).toString("hex").toUpperCase();
+export const publicId = () => randomBytes(8).toString("base64url").replace(/[^a-zA-Z0-9]/g, "").slice(0, 10);
 
 export type UserStatus = "active" | "disabled";
 export type CodeStatus = "unused" | "in_use" | "expired" | "frozen" | "deleted";
@@ -40,7 +41,11 @@ export interface Role {
 
 export interface Project {
   id: string;
+  publicId?: string;
   projectNo?: number;
+  creatorUserId?: string;
+  developerUsername?: string;
+  developerCode?: string;
   name: string;
   description?: string;
   config: Record<string, unknown>;
@@ -69,12 +74,19 @@ export interface RegisterCode {
   remark?: string;
   expireAt?: number;
   createdAt: number;
+  developerId?: string;
+  developerUsername?: string;
+  developerCode?: string;
 }
 
 export interface CustomData {
   id: string;
+  publicId?: string;
   projectId: string;
   projectName?: string;
+  developerId?: string;
+  developerUsername?: string;
+  developerCode?: string;
   key: string;
   value: string;
   remark?: string;
@@ -82,8 +94,12 @@ export interface CustomData {
 
 export interface SecurityPolicy {
   id: string;
+  publicId?: string;
   projectId: string;
   projectName?: string;
+  developerId?: string;
+  developerUsername?: string;
+  developerCode?: string;
   name: string;
   mode: "basic" | "advanced";
   status: "enabled" | "disabled";
@@ -100,8 +116,11 @@ export interface ProductVariant {
 
 export interface Product {
   id: string;
+  publicId?: string;
   projectId: string;
   creatorUserId?: string;
+  developerUsername?: string;
+  developerCode?: string;
   name: string;
   summary?: string;
   status?: "draft" | "published";
