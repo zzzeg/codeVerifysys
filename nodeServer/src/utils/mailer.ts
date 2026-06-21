@@ -17,6 +17,15 @@ const getRequiredEnv = (key: string) => {
 
 let transporter: nodemailer.Transporter | null = null;
 
+/**
+ * 生成订单发货邮件中的商品展示文案
+ *
+ * @param opts 商品名称、规格和数量
+ * @returns 返回商品展示文案
+ */
+export const buildOrderProductLine = (opts: { productName: string; variantLabel?: string; quantity?: number; cardCount?: number }) =>
+  `${opts.productName}${opts.variantLabel ? ` - ${opts.variantLabel}` : ""} * ${Number(opts.quantity || opts.cardCount || 1)}`;
+
 const getTransporter = () => {
   if (transporter) return transporter;
 
@@ -56,17 +65,30 @@ export const sendVerificationEmail = async (opts: { to: string; code: string; pu
   await t.sendMail({ from, to: opts.to, subject, text, html });
 };
 
-export const sendOrderDeliveryEmail = async (opts: { to: string; orderId: string; productName: string; cards: string[] }) => {
+export const sendOrderDeliveryEmail = async (opts: {
+  to: string;
+  orderId: string;
+  productName: string;
+  variantLabel?: string;
+  quantity?: number;
+  cards: string[];
+}) => {
   const from = getRequiredEnv("VERIFYSYS_SMTP_FROM");
   const product = getEnvValue("VERIFYSYS_PRODUCT_NAME") || "VerifySys";
   const subject = `${product} 订单发货通知`;
   const cardText = opts.cards.join("\n");
-  const text = `订单号：${opts.orderId}\n商品：${opts.productName}\n卡密：\n${cardText}`;
+  const productLine = buildOrderProductLine({
+    productName: opts.productName,
+    variantLabel: opts.variantLabel,
+    quantity: opts.quantity,
+    cardCount: opts.cards.length,
+  });
+  const text = `订单号：${opts.orderId}\n商品：${productLine}\n卡密：\n${cardText}`;
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; line-height: 1.7;">
       <h2 style="margin:0 0 12px 0;">订单发货通知</h2>
       <p style="margin:0 0 8px 0;">订单号：<strong>${opts.orderId}</strong></p>
-      <p style="margin:0 0 8px 0;">商品：<strong>${opts.productName}</strong></p>
+      <p style="margin:0 0 8px 0;">商品：<strong>${productLine}</strong></p>
       <p style="margin:12px 0 8px 0;">卡密如下：</p>
       <pre style="margin:0; padding:12px 14px; background:#f3f4f6; border-radius:10px; white-space:pre-wrap; word-break:break-all;">${cardText}</pre>
     </div>

@@ -8,6 +8,7 @@ import { useRoute } from 'vue-router'
 import defaultProductCover from '../../../assets/default-cdk-product-220.svg'
 import alipayLogo from '../../../assets/svg/Alipay_Chinese_logos.svg'
 import wechatPayLogo from '../../../assets/svg/wechatpay_logos.svg'
+import detailIcon from '../../../assets/images/detial.png'
 
 interface VariantItem {
   id: string
@@ -84,8 +85,8 @@ const rules = computed<FormRules>(() => ({
   ],
   captchaCode: captchaRequired.value
     ? [
-        { required: true, message: '请输入验证码', trigger: 'blur' },
-      ]
+      { required: true, message: '请输入验证码', trigger: 'blur' },
+    ]
     : [],
 }))
 
@@ -313,8 +314,12 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="detail-card">
-        <h2>商品详情</h2>
-        <div class="detail-text">{{ product.description || '暂无商品描述' }}</div>
+        <h2 class="detail-title">
+          <img :src="detailIcon" alt="详情" class="detail-icon" />
+          <span>商品详情</span>
+        </h2>
+        <div v-if="product.description" class="detail-rich-text" v-html="product.description" />
+        <div v-else class="detail-text">暂无商品描述</div>
       </section>
 
       <el-dialog v-model="resultDialogVisible" class="purchase-result-dialog" width="100vw" top="0" align-center
@@ -359,7 +364,7 @@ onBeforeUnmount(() => {
 .public-product-page {
   min-height: 100dvh;
   padding: 24px;
-  background: #f5f7fb;
+  background: radial-gradient(circle at top left, rgba(64, 158, 255, .14), transparent 34%), radial-gradient(circle at top right, rgba(103, 194, 58, .1), transparent 26%), linear-gradient(180deg, #f7fbff, #eef3fb 52%, #edf2f9);
 }
 
 .public-product-shell {
@@ -398,7 +403,7 @@ onBeforeUnmount(() => {
   border: 1px solid #ebeef5;
   border-radius: 16px;
   background: #fff;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 0 16px #25293103;
 }
 
 .hero {
@@ -646,6 +651,19 @@ onBeforeUnmount(() => {
   font-size: 20px;
 }
 
+.detail-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
 .result-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -683,9 +701,102 @@ onBeforeUnmount(() => {
 }
 
 .detail-text {
-  color: #374151;
+  color: #333;
   line-height: 1.9;
   white-space: pre-wrap;
+  font-size: 14px;
+}
+
+.detail-rich-text {
+  color: #333;
+  font-size: 14px;
+  line-height: 1.9;
+  word-break: break-word;
+}
+
+.detail-rich-text :deep(p) {
+  margin: 0 0 12px;
+}
+
+.detail-rich-text :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.detail-rich-text :deep(h1),
+.detail-rich-text :deep(h2),
+.detail-rich-text :deep(h3) {
+  margin: 18px 0 10px;
+  color: #111827;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.detail-rich-text :deep(h1) {
+  font-size: 28px;
+}
+
+.detail-rich-text :deep(h2) {
+  font-size: 22px;
+}
+
+.detail-rich-text :deep(h3) {
+  font-size: 18px;
+}
+
+.detail-rich-text :deep(ul),
+.detail-rich-text :deep(ol) {
+  margin: 12px 0;
+  padding-left: 22px;
+}
+
+.detail-rich-text :deep(blockquote) {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border-left: 4px solid #60a5fa;
+  background: #f8fbff;
+  color: #475569;
+}
+
+.detail-rich-text :deep(pre) {
+  margin: 14px 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.detail-rich-text :deep(code) {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #eff3f8;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.detail-rich-text :deep(a) {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.detail-rich-text :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.detail-rich-text :deep(img) {
+  display: block;
+  max-width: 100%;
+  margin: 14px 0;
+  border-radius: 10px;
+}
+
+.detail-rich-text :deep(hr) {
+  margin: 18px 0;
+  border: none;
+  border-top: 1px solid #dbe4f0;
 }
 
 .cards-block {

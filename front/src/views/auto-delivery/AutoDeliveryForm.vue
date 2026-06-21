@@ -6,6 +6,7 @@ import { Delete } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../../utils/request'
 import { useUnsavedChangesGuard } from '../../composables/useUnsavedChangesGuard'
+import SimpleEditor from '../../components/SimpleEditor.vue'
 
 interface ProjectItem {
   id: string
@@ -104,6 +105,32 @@ const validateBuyRange = (_rule: unknown, _value: number, callback: (error?: Err
   callback()
 }
 
+/**
+ * 校验商品描述是否包含有效内容
+ * @param _rule 校验规则
+ * @param value 商品描述HTML
+ * @param callback 校验回调
+ * @returns 无
+ */
+const validateDescription = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  // 1. 统一兜底空值，避免 replace 调用异常
+  const html = String(value || '')
+  // 2. 移除图片标签后提取纯文本，用于判断文本内容是否为空
+  const textContent = html
+    .replace(/<img[\s\S]*?>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, '')
+  // 3. 同时保留图片场景，允许仅上传图片也通过校验
+  const hasImage = /<img[\s\S]*?>/i.test(html)
+
+  if (!textContent && !hasImage) {
+    callback(new Error('请输入商品描述'))
+    return
+  }
+  callback()
+}
+
 const rules: FormRules<typeof form> = {
   projectId: [{ required: true, message: '请选择项目', trigger: 'change' }],
   name: [{ required: true, whitespace: true, message: '请输入商品名称', trigger: 'blur' }],
@@ -111,7 +138,7 @@ const rules: FormRules<typeof form> = {
     { required: true, whitespace: true, message: '请输入商品简介', trigger: 'blur' },
     { max: 200, message: '商品简介不能超过 200 个字符', trigger: 'blur' },
   ],
-  description: [{ required: true, whitespace: true, message: '请输入商品描述', trigger: 'blur' }],
+  description: [{ validator: validateDescription, trigger: 'blur' }],
   variants: [{ validator: validateVariants, trigger: 'change' }],
   minBuy: [{ validator: validateBuyRange, trigger: 'change' }],
   maxBuy: [{ validator: validateBuyRange, trigger: 'change' }],
@@ -348,8 +375,8 @@ onUnmounted(() => {
 
       <el-form-item label="商品描述：" prop="description">
         <div class="form-field wide-field">
-          <el-input v-model="form.description" type="textarea" :rows="4" />
-          <p class="hint-text">商品描述支持直接换行，购买页会按文本换行展示</p>
+          <SimpleEditor v-model="form.description" placeholder="请输入商品描述" min-height="320px" />
+          <p class="hint-text">商品描述支持富文本格式，购买页会按图文内容展示</p>
         </div>
       </el-form-item>
 
@@ -362,9 +389,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.form-shell {
-  max-width: 920px;
-}
+.form-shell {}
 
 .edit-form :deep(.el-form-item) {
   align-items: flex-start;
@@ -386,7 +411,7 @@ onUnmounted(() => {
 }
 
 .wide-field {
-  max-width: 840px;
+  max-width: 920px;
 }
 
 .hint-text {

@@ -534,6 +534,8 @@ router.post("/public/payment/callback", async (req, res) => {
 
   let cards: string[] = [];
   let productName = "";
+  let variantLabel = "";
+  let quantity = 0;
   let buyerEmail = "";
 
   try {
@@ -546,6 +548,8 @@ router.post("/public/payment/callback", async (req, res) => {
         return {
           cards: JSON.parse(lockedOrder.delivery_payload),
           productName: "",
+          variantLabel: String(lockedOrder.variant_label || ""),
+          quantity: Number(lockedOrder.quantity || 0),
           buyerEmail: String(lockedOrder.buyer_email || ""),
           alreadyDelivered: true,
         };
@@ -565,7 +569,15 @@ router.post("/public/payment/callback", async (req, res) => {
       );
       const affectedRows = ((updateResult[0] as ResultSetHeader)?.affectedRows || 0);
       if (affectedRows === 0) throw new Error("订单状态已变更，请刷新后重试");
-      if (status !== "paid") return { cards: [], productName: "", buyerEmail: String(lockedOrder.buyer_email || "") };
+      if (status !== "paid") {
+        return {
+          cards: [],
+          productName: "",
+          variantLabel: String(lockedOrder.variant_label || ""),
+          quantity: Number(lockedOrder.quantity || 0),
+          buyerEmail: String(lockedOrder.buyer_email || ""),
+        };
+      }
 
       const [productRows] = await conn.query(`SELECT * FROM ${table("products")} WHERE id = ?`, [lockedOrder.product_id]);
       const productRow = (productRows as any[])[0];
@@ -590,10 +602,18 @@ router.post("/public/payment/callback", async (req, res) => {
          VALUES (?, ?, ?, 'order', 0, ?)`,
         [uuid(), "新订单已发货", `订单 ${orderId} 已自动发货，金额 ${Number(lockedOrder.amount || 0).toFixed(2)} 元。`, now],
       );
-      return { cards: issued, productName: product.name, buyerEmail: String(lockedOrder.buyer_email || "") };
+      return {
+        cards: issued,
+        productName: product.name,
+        variantLabel: String(lockedOrder.variant_label || variant.label || ""),
+        quantity: Number(lockedOrder.quantity || issued.length || 1),
+        buyerEmail: String(lockedOrder.buyer_email || ""),
+      };
     });
     cards = result.cards;
     productName = result.productName;
+    variantLabel = result.variantLabel;
+    quantity = result.quantity;
     buyerEmail = result.buyerEmail;
   } catch (error: any) {
     return respondError(res, error?.message || "支付确认失败", 400);
@@ -605,6 +625,8 @@ router.post("/public/payment/callback", async (req, res) => {
         to: buyerEmail,
         orderId,
         productName,
+        variantLabel,
+        quantity,
         cards,
       });
     } catch (error) {
