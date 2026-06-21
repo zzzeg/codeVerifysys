@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import AppPagination from '../../components/common/AppPagination.vue'
 import request from '../../utils/request'
 import { formatDateTimeCell } from '../../utils/datetime'
 
@@ -38,7 +39,7 @@ onMounted(fetchLogs)
     </el-table>
 
     <div v-if="total > pageSize" class="pager">
-      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[20, 30, 50, 100]"
+      <AppPagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[20, 30, 50, 100]"
         :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
         @size-change="handleSizeChange" />
     </div>

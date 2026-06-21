@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Money, Wallet } from '@element-plus/icons-vue'
+import AppPagination from '../../components/common/AppPagination.vue'
 import request from '../../utils/request'
 
 type WithdrawRecord = {
@@ -180,7 +181,7 @@ onMounted(async () => {
       </el-table>
 
       <div v-if="total > pageSize" class="pager">
-        <el-pagination v-model:current-page="currentPage" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+        <AppPagination v-model:current-page="currentPage" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
           :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
           @size-change="handleSizeChange" />
       </div>

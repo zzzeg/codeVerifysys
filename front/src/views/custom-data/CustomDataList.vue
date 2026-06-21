@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppPagination from '../../components/common/AppPagination.vue'
 import request from '../../utils/request'
 import { useAuthStore } from '../../store/auth'
 import { isAdminUser } from '../../utils/authScope'
@@ -189,7 +190,7 @@ watch(
     </el-table>
 
     <div v-if="total > query.pageSize" class="pager">
-      <el-pagination v-model:current-page="query.page" v-model:page-size="query.pageSize"
+      <AppPagination v-model:current-page="query.page" v-model:page-size="query.pageSize"
         :page-sizes="[10, 20, 50, 100]" :total="total" layout="total, sizes, prev, pager, next, jumper"
         @current-change="handlePageChange" @size-change="handleSizeChange" />
     </div>

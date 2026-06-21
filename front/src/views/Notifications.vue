@@ -6,6 +6,7 @@ import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
 } from '../api/notifications'
+import AppPagination from '../components/common/AppPagination.vue'
 import type { NotificationItem } from '../types/notification'
 
 const loading = ref(false)
@@ -124,7 +125,7 @@ onMounted(fetchList)
     </el-table>
 
     <div v-if="total > pageSize" class="pager">
-      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+      <AppPagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
         :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="handlePageChange"
         @size-change="handleSizeChange" />
     </div>

@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Download, Upload, Delete, ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
+import AppPagination from '../../components/common/AppPagination.vue'
 import request from '../../utils/request'
 import { formatDateTime } from '../../utils/datetime'
 import { useAuthStore } from '../../store/auth'
@@ -335,18 +336,6 @@ const toggleFilterPanel = () => {
   relayoutTable()
 }
 
-//批量选中 点击全选
-const handleSelectAllColumn = (val: any) => {
-  if (val) {
-    list.value.forEach((row) => {
-      tableRef.value?.toggleRowSelection(row, true)
-    })
-  } else {
-    tableRef.value?.clearSelection()
-  }
-
-  //console.log("selectedRows.value", selectedRows.value)
-}
 // 选择变化
 const handleSelectionChange = (rows: CodeItem[]) => {
   selectedRows.value = rows
@@ -1144,14 +1133,13 @@ watch(
       </div>
 
       <div class="filter-row table_flexrow">
-        <el-checkbox label="" size="large" @change="handleSelectAllColumn" />
         <el-button link type="primary" size="small" @click="handleBatchFreeze">冻结</el-button>
         <el-button link type="primary" size="small" @click="handleBatchUnfreeze">解冻</el-button>
         <el-button link type="primary" size="small" @click="handleBatchUnbind">解绑</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangeProject">改项目类型</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangeNote">改备注</el-button>
         <el-button link type="primary" size="small" @click="handleBatchDelete">{{ hasDeletedSelection ? '彻底删除' : '删除'
-        }}</el-button>
+          }}</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecover">恢复</el-button>
         <el-button link type="primary" size="small" @click="handleBatchRecharge">续费</el-button>
         <el-button link type="primary" size="small" @click="handleBatchChangePassword">重置解绑密码</el-button>
@@ -1174,7 +1162,7 @@ watch(
             </template>
           </el-table-column>
           <el-table-column prop="projectName" label="项目类型" min-width="80" />
-          <el-table-column v-if="canViewDeveloper" label="开发者" min-width="110">
+          <el-table-column v-if="canViewDeveloper" label="开发者" min-width="100">
             <template #default="{ row }">
               {{ row.developerUsername || row.developerCode || '-' }}
             </template>
@@ -1243,7 +1231,7 @@ watch(
 
       <!-- 分页 -->
       <div v-if="total > filters.pageSize" class="pagination-wrap">
-        <el-pagination v-model:current-page="filters.currentPage" v-model:page-size="filters.pageSize"
+        <AppPagination v-model:current-page="filters.currentPage" v-model:page-size="filters.pageSize"
           :page-sizes="[20, 50, 80, 100]" :total="total" :layout="paginationLayout" @current-change="handlePageChange"
           @size-change="handleSizeChange" />
       </div>
@@ -1399,12 +1387,12 @@ watch(
           <div class="detail-card-item">
             <span>使用状态</span>
             <strong :style="{ color: getStatusColor(currentRow.status) }">{{ getStatusText(currentRow.status)
-            }}</strong>
+              }}</strong>
           </div>
           <div class="detail-card-item">
             <span>在线状态</span>
             <strong :style="{ color: currentRow.isOnline ? '#67c23a' : '#909399' }">{{ currentRow.isOnline ? '在线' : '离线'
-              }}</strong>
+            }}</strong>
           </div>
           <div class="detail-card-item">
             <span>创建时间</span>
@@ -1550,7 +1538,7 @@ watch(
           <div class="import-guide">
             <p>从其它系统导出的注册码数据，可直接按当前选择的分割符导入。</p>
             <p>导入格式支持：注册码{{ getDelimiterLabel(importForm.delimiter) }}激活时间{{ getDelimiterLabel(importForm.delimiter)
-              }}到期时间{{ getDelimiterLabel(importForm.delimiter) }}卡类型。</p>
+            }}到期时间{{ getDelimiterLabel(importForm.delimiter) }}卡类型。</p>
             <p>示例：AAAAAAA{{ importForm.delimiter === '\t' ? ' ' : importForm.delimiter }}2016-01-01 00:00:00{{
               importForm.delimiter === '\t' ? ' ' : importForm.delimiter }}2016-02-01 00:00:00{{ importForm.delimiter
                 ===
@@ -1975,6 +1963,7 @@ v-deep .el-checkbox {
 
 :deep(.el-button.is-link) {
   font-weight: 700;
+  line-height: 2;
 }
 
 :deep(.el-table) {
