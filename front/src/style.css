@@ -607,7 +607,7 @@ select {
 .data-form,
 .edit-form,
 .generate-form {
-  max-width: 960px;
+  max-width: 1040px;
 }
 
 .project-form .el-form-item,

@@ -723,7 +723,7 @@ function isActive(name: string, attrs?: Record<string, unknown>) {
 
 <style scoped lang="scss">
 .simple-editor {
-  --simple-editor-min-height: 300px;
+  --simple-editor-min-height: 200px;
   border: 1px solid var(--el-border-color, #dcdfe6);
   border-radius: 4px;
   overflow: hidden;

@@ -375,7 +375,7 @@ onUnmounted(() => {
 
       <el-form-item label="商品描述：" prop="description">
         <div class="form-field wide-field">
-          <SimpleEditor v-model="form.description" placeholder="请输入商品描述" min-height="320px" />
+          <SimpleEditor v-model="form.description" placeholder="请输入商品描述" min-height="160px" />
           <p class="hint-text">商品描述支持富文本格式，购买页会按图文内容展示</p>
         </div>
       </el-form-item>
