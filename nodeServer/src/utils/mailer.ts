@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { getEnvValue } from "../env";
 
 const getBool = (val: string | undefined, def = false) => {
   if (typeof val === "undefined") return def;
@@ -9,7 +10,7 @@ const getBool = (val: string | undefined, def = false) => {
 };
 
 const getRequiredEnv = (key: string) => {
-  const v = process.env[key];
+  const v = getEnvValue(key);
   if (!v) throw new Error(`缺少环境变量 ${key}`);
   return v;
 };
@@ -20,8 +21,8 @@ const getTransporter = () => {
   if (transporter) return transporter;
 
   const host = getRequiredEnv("VERIFYSYS_SMTP_HOST");
-  const port = Number(process.env.VERIFYSYS_SMTP_PORT || 465);
-  const secure = getBool(process.env.VERIFYSYS_SMTP_SECURE, port === 465);
+  const port = Number(getEnvValue("VERIFYSYS_SMTP_PORT") || 465);
+  const secure = getBool(getEnvValue("VERIFYSYS_SMTP_SECURE"), port === 465);
   const user = getRequiredEnv("VERIFYSYS_SMTP_USER");
   const pass = getRequiredEnv("VERIFYSYS_SMTP_PASS");
 
@@ -36,7 +37,7 @@ const getTransporter = () => {
 
 export const sendVerificationEmail = async (opts: { to: string; code: string; purpose: "register" | "reset"; expireMinutes: number }) => {
   const from = getRequiredEnv("VERIFYSYS_SMTP_FROM");
-  const product = process.env.VERIFYSYS_PRODUCT_NAME || "VerifySys";
+  const product = getEnvValue("VERIFYSYS_PRODUCT_NAME") || "VerifySys";
 
   const subject = opts.purpose === "register" ? `${product} 注册验证码` : `${product} 找回密码验证码`;
   const purposeLabel = opts.purpose === "register" ? "注册" : "找回密码";
@@ -57,7 +58,7 @@ export const sendVerificationEmail = async (opts: { to: string; code: string; pu
 
 export const sendOrderDeliveryEmail = async (opts: { to: string; orderId: string; productName: string; cards: string[] }) => {
   const from = getRequiredEnv("VERIFYSYS_SMTP_FROM");
-  const product = process.env.VERIFYSYS_PRODUCT_NAME || "VerifySys";
+  const product = getEnvValue("VERIFYSYS_PRODUCT_NAME") || "VerifySys";
   const subject = `${product} 订单发货通知`;
   const cardText = opts.cards.join("\n");
   const text = `订单号：${opts.orderId}\n商品：${opts.productName}\n卡密：\n${cardText}`;

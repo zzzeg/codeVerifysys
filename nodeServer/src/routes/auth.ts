@@ -8,6 +8,7 @@ import { ROLE_DEVELOPER } from "../constants/roles";
 import { execute, query, queryOne, withTransaction } from "../db/mysql";
 import { table } from "../db/tables";
 import { sendVerificationEmail } from "../utils/mailer";
+import { getEnvValue } from "../env";
 
 const router = Router();
 
@@ -65,7 +66,7 @@ const issueEmailCode = async (email: string, purpose: EmailCodePurpose) => {
     throw err;
   }
 
-  const debug = process.env.VERIFYSYS_EMAIL_DEBUG === "1" || process.env.NODE_ENV !== "production";
+  const debug = getEnvValue("VERIFYSYS_EMAIL_DEBUG") === "1" || process.env.NODE_ENV !== "production";
   return { ok: true as const, id, expireAt, debugCode: debug ? code : undefined };
 };
 

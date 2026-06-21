@@ -8,12 +8,19 @@ import { sendOrderDeliveryEmail } from "../utils/mailer";
 import { createOrderIdCandidate } from "../utils";
 import { ResultSetHeader } from "mysql2";
 import { getPagination } from "../utils/pagination";
+import { getEnvValue } from "../env";
 import {
   generateUniquePublicId,
   getAccessibleProject,
   getDeveloperKeywordScope,
   getProjectOwnerScope,
 } from "../utils/permissionScope";
+import {
+  createMemoryRateLimiter,
+  getClientIp,
+  isMockPaymentCallbackEnabled,
+  shouldRequirePublicCaptcha,
+} from "../utils/publicSecurity";
 
 const router = Router();
 
@@ -120,8 +127,15 @@ const mapOrderRow = (r: any): Order => ({
 
 const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const publicOrderCaptchaStore = new Map<string, { code: string; expireAt: number; productId: string }>();
+const publicPurchaseFailureStore = new Map<string, number[]>();
+const publicCaptchaMaxSize = 1000;
+const publicTrustProxy = String(getEnvValue("VERIFYSYS_TRUST_PROXY") || "").toLowerCase() === "true";
 const captchaCleanupIntervalMs = 60_000;
 let lastCaptchaCleanupAt = 0;
+const publicProductLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 120 });
+const publicCaptchaLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 8 });
+const publicPurchaseLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 12 });
+const publicPaymentCallbackLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 30 });
 
 const cleanupExpiredCaptchas = (now = Date.now()) => {
   if (now - lastCaptchaCleanupAt < captchaCleanupIntervalMs) return;
@@ -129,6 +143,73 @@ const cleanupExpiredCaptchas = (now = Date.now()) => {
   for (const [id, captcha] of publicOrderCaptchaStore.entries()) {
     if (captcha.expireAt < now) publicOrderCaptchaStore.delete(id);
   }
+};
+
+/**
+ * 清理并统计公共购买失败次数
+ *
+ * @param key 失败次数统计维度
+ * @param now 当前时间戳
+ * @returns 返回当前窗口内失败次数
+ */
+const getPublicPurchaseFailureCount = (key: string, now = Date.now()) => {
+  const startAt = now - 10 * 60_000;
+  const hits = (publicPurchaseFailureStore.get(key) || []).filter((time) => time > startAt);
+  if (hits.length) {
+    publicPurchaseFailureStore.set(key, hits);
+  } else {
+    publicPurchaseFailureStore.delete(key);
+  }
+  return hits.length;
+};
+
+/**
+ * 记录公共购买失败行为
+ *
+ * @param key 失败次数统计维度
+ * @param now 当前时间戳
+ * @returns 无返回值
+ */
+const recordPublicPurchaseFailure = (key: string, now = Date.now()) => {
+  const startAt = now - 10 * 60_000;
+  const hits = (publicPurchaseFailureStore.get(key) || []).filter((time) => time > startAt);
+  hits.push(now);
+  publicPurchaseFailureStore.set(key, hits.slice(-20));
+};
+
+/**
+ * 清空公共购买失败状态
+ *
+ * @param key 失败次数统计维度
+ * @returns 无返回值
+ */
+const clearPublicPurchaseFailure = (key: string) => {
+  publicPurchaseFailureStore.delete(key);
+};
+
+/**
+ * 获取公共接口限流 key
+ *
+ * @param req 当前请求对象
+ * @param action 接口动作名称
+ * @param code 商品短链接码或订单号
+ * @returns 返回限流 key
+ */
+const getPublicRateLimitKey = (req: any, action: string, code = "") =>
+  `${action}:${getClientIp(req, { trustProxy: publicTrustProxy })}:${code}`;
+
+/**
+ * 判断公共接口是否被限流
+ *
+ * @param res 当前响应对象
+ * @param result 限流器返回结果
+ * @returns 返回是否已经输出限流响应
+ */
+const rejectWhenRateLimited = (res: any, result: { allowed: boolean; retryAfterMs: number }) => {
+  if (result.allowed) return false;
+  res.setHeader("Retry-After", String(Math.ceil(result.retryAfterMs / 1000)));
+  respondError(res, "请求过于频繁，请稍后再试", 429);
+  return true;
 };
 
 const svgEscape = (value: string) =>
@@ -322,6 +403,9 @@ const issueCardCodes = async (product: Product, variant: ProductVariant, quantit
 
 // Public routes
 router.get("/public/:code", async (req, res) => {
+  const limited = publicProductLimiter.consume(getPublicRateLimitKey(req, "public-product", req.params.code));
+  if (rejectWhenRateLimited(res, limited)) return;
+
   const row = await queryOne(`SELECT * FROM ${table("products")} WHERE link_code = ?`, [req.params.code]);
   if (!row) return respondError(res, "未找到商品", 404);
   if (row.status === "draft") return respondError(res, "商品尚未发布", 404);
@@ -329,10 +413,13 @@ router.get("/public/:code", async (req, res) => {
 });
 
 router.post("/public/:code/captcha", async (req, res) => {
+  const limited = publicCaptchaLimiter.consume(getPublicRateLimitKey(req, "public-captcha", req.params.code));
+  if (rejectWhenRateLimited(res, limited)) return;
   cleanupExpiredCaptchas();
   const row = await queryOne(`SELECT * FROM ${table("products")} WHERE link_code = ?`, [req.params.code]);
   if (!row) return respondError(res, "未找到商品", 404);
   if (row.status === "draft") return respondError(res, "商品尚未发布", 404);
+  if (publicOrderCaptchaStore.size >= publicCaptchaMaxSize) return respondError(res, "验证码请求过于频繁，请稍后再试", 429);
 
   const code = createCaptchaText();
   const captchaId = uuid();
@@ -346,6 +433,9 @@ router.post("/public/:code/captcha", async (req, res) => {
 });
 
 router.post("/public/:code/purchase", async (req, res) => {
+  const limited = publicPurchaseLimiter.consume(getPublicRateLimitKey(req, "public-purchase", req.params.code));
+  if (rejectWhenRateLimited(res, limited)) return;
+
   const row = await queryOne(`SELECT * FROM ${table("products")} WHERE link_code = ?`, [req.params.code]);
   if (!row) return respondError(res, "未找到商品", 404);
   const product = mapProductRow(row);
@@ -354,24 +444,43 @@ router.post("/public/:code/purchase", async (req, res) => {
   if (!product.allowAnonymous) return respondError(res, "该商品未开启匿名购买", 403);
 
   const { variantId, quantity = 1, buyer = "anonymous", email = "", captchaCode = "", captchaId = "" } = req.body || {};
+  const clientIp = getClientIp(req, { trustProxy: publicTrustProxy });
+  const riskKey = `${clientIp}:${product.id}`;
+  const failureCount = getPublicPurchaseFailureCount(riskKey);
+  const purchaseCount = 12 - limited.remaining;
+  const requireCaptcha = shouldRequirePublicCaptcha({ failureCount, purchaseCount });
   const variant = product.variants.find((v) => v.id === variantId) || product.variants[0];
-  if (!variant) return respondError(res, "未找到商品规格", 404);
+  if (!variant) {
+    recordPublicPurchaseFailure(riskKey);
+    return respondError(res, "未找到商品规格", 404);
+  }
 
   const buyerEmail = String(email || "").trim().toLowerCase();
-  if (!buyerEmail || !isEmail(buyerEmail)) return respondError(res, "邮箱格式不正确", 400);
-
-  const captcha = publicOrderCaptchaStore.get(String(captchaId || ""));
-  if (
-    !captcha ||
-    captcha.productId !== product.id ||
-    captcha.expireAt < Date.now() ||
-    captcha.code.toUpperCase() !== String(captchaCode || "").trim().toUpperCase()
-  ) {
-    return respondError(res, "验证码错误或已过期", 400);
+  if (!buyerEmail || !isEmail(buyerEmail)) {
+    recordPublicPurchaseFailure(riskKey);
+    return respondError(res, "邮箱格式不正确", 400);
   }
-  publicOrderCaptchaStore.delete(String(captchaId || ""));
 
-  const qty = Math.min(Math.max(Number(quantity) || 1, product.minBuy), product.maxBuy);
+  const qty = Number(quantity);
+  if (!Number.isInteger(qty) || qty < product.minBuy || qty > product.maxBuy) {
+    recordPublicPurchaseFailure(riskKey);
+    return respondError(res, `购买数量必须在 ${product.minBuy} 到 ${product.maxBuy} 之间`, 400);
+  }
+
+  if (requireCaptcha) {
+    const captcha = publicOrderCaptchaStore.get(String(captchaId || ""));
+    if (
+      !captcha ||
+      captcha.productId !== product.id ||
+      captcha.expireAt < Date.now() ||
+      captcha.code.toUpperCase() !== String(captchaCode || "").trim().toUpperCase()
+    ) {
+      recordPublicPurchaseFailure(riskKey);
+      return respond(res, { requireCaptcha: true }, "请先完成验证码校验", 400);
+    }
+    publicOrderCaptchaStore.delete(String(captchaId || ""));
+  }
+
   const amount = Number(variant.price) * qty;
   const creatorRow = await queryOne<{ developer_code: string | null }>(
     `SELECT developer_code FROM ${table("users")} WHERE id = ?`,
@@ -386,8 +495,9 @@ router.post("/public/:code/purchase", async (req, res) => {
   await execute(
     `INSERT INTO ${table("orders")} (id, product_id, creator_user_id, buyer, buyer_email, mock_pay_token, variant_id, variant_label, quantity, amount, verify_code, status, settlement_status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'unsettled', ?)`,
-    [orderId, product.id, product.creatorUserId, buyer, buyerEmail, mockPayToken, variant.id, variant.label, qty, amount, captcha.code, now]
+    [orderId, product.id, product.creatorUserId, buyer, buyerEmail, mockPayToken, variant.id, variant.label, qty, amount, requireCaptcha ? "captcha_passed" : "", now]
   );
+  clearPublicPurchaseFailure(riskKey);
 
   return respond(res, {
     orderId,
@@ -400,8 +510,17 @@ router.post("/public/:code/purchase", async (req, res) => {
 });
 
 router.post("/public/payment/callback", async (req, res) => {
+  if (!isMockPaymentCallbackEnabled({
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_MOCK_PAYMENT_CALLBACK: getEnvValue("ENABLE_MOCK_PAYMENT_CALLBACK"),
+  })) {
+    return respondError(res, "模拟支付回调已关闭", 403);
+  }
+
   const { orderId, mockPayToken = "", status = "paid" } = req.body || {};
   if (!orderId) return respond(res, {});
+  const limited = publicPaymentCallbackLimiter.consume(getPublicRateLimitKey(req, "public-payment", String(orderId)));
+  if (rejectWhenRateLimited(res, limited)) return;
 
   const orderRow = await queryOne<any>(`SELECT * FROM ${table("orders")} WHERE id = ?`, [orderId]);
   if (!orderRow) return respondError(res, "订单不存在", 404);

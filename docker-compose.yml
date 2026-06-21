@@ -12,6 +12,8 @@ services:
     image: ${GHCR_IMAGE_PREFIX}/api:${IMAGE_TAG:-latest}
     container_name: verifysys-api
     restart: unless-stopped
+    env_file:
+      - .env.prod
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -23,14 +25,8 @@ services:
       VERIFYSYS_MYSQL_DB: ${DB_NAME}
       VERIFYSYS_MYSQL_USER: ${DB_USER}
       VERIFYSYS_MYSQL_PASSWORD: ${DB_PASSWORD}
-      VERIFYSYS_EMAIL_DEBUG: ${VERIFYSYS_EMAIL_DEBUG:-0}
-      VERIFYSYS_SMTP_HOST: ${VERIFYSYS_SMTP_HOST:-}
-      VERIFYSYS_SMTP_PORT: ${VERIFYSYS_SMTP_PORT:-465}
-      VERIFYSYS_SMTP_SECURE: ${VERIFYSYS_SMTP_SECURE:-true}
-      VERIFYSYS_SMTP_USER: ${VERIFYSYS_SMTP_USER:-}
-      VERIFYSYS_SMTP_PASS: ${VERIFYSYS_SMTP_PASS:-}
-      VERIFYSYS_SMTP_FROM: ${VERIFYSYS_SMTP_FROM:-}
-      VERIFYSYS_PRODUCT_NAME: ${VERIFYSYS_PRODUCT_NAME:-VerifySys}
+      VERIFYSYS_TRUST_PROXY: ${VERIFYSYS_TRUST_PROXY:-false}
+      ENABLE_MOCK_PAYMENT_CALLBACK: ${ENABLE_MOCK_PAYMENT_CALLBACK:-false}
       CLIENT_DEV_SECRET: ${CLIENT_DEV_SECRET:-}
     volumes:
       - api-uploads:/app/uploads

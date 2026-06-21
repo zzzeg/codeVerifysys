@@ -2,12 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { publicRequest } from '../utils/request'
-import type { ApiResp } from '../utils/request'
+import { publicRequest } from '../../../utils/request'
+import type { ApiResp } from '../../../utils/request'
 import { useRoute } from 'vue-router'
-import defaultProductCover from '../assets/default-cdk-product-220.svg'
-import alipayLogo from '../assets/svg/Alipay_Chinese_logos.svg'
-import wechatPayLogo from '../assets/svg/wechatpay_logos.svg'
+import defaultProductCover from '../../../assets/default-cdk-product-220.svg'
+import alipayLogo from '../../../assets/svg/Alipay_Chinese_logos.svg'
+import wechatPayLogo from '../../../assets/svg/wechatpay_logos.svg'
 
 interface VariantItem {
   id: string
@@ -39,8 +39,10 @@ const resultDialogVisible = ref(false)
 const formRef = ref<FormInstance>()
 const captchaImage = ref('')
 const captchaId = ref('')
+const captchaRequired = ref(false)
 const loadError = ref('')
 const captchaError = ref('')
+let lastCaptchaRequestAt = 0
 const form = reactive({
   quantity: 1,
   email: '',
@@ -53,36 +55,38 @@ const totalAmount = computed(() => Number(selectedVariant.value?.price || 0) * N
 const canDownloadCards = computed(() => (orderResult.value?.cards.length || 0) >= 5)
 
 const rules = computed<FormRules>(() => ({
-  quantity: [
-    {
-      validator: (_rule, value, callback) => {
-        const minBuy = Number(product.value?.minBuy || 1)
-        const maxBuy = Number(product.value?.maxBuy || 1)
-        const quantity = Number(value)
-        if (!Number.isFinite(quantity)) {
-          callback(new Error('请输入有效的购买数量'))
-          return
-        }
-        if (quantity < minBuy) {
-          callback(new Error(`购买数量不能少于 ${minBuy}`))
-          return
-        }
-        if (quantity > maxBuy) {
-          callback(new Error(`购买数量不能超过 ${maxBuy}`))
-          return
-        }
-        callback()
-      },
-      trigger: 'change',
-    },
-  ],
+  // quantity: [
+  //   {
+  //     validator: (_rule, value, callback) => {
+  //       const minBuy = Number(product.value?.minBuy || 1)
+  //       const maxBuy = Number(product.value?.maxBuy || 1)
+  //       const quantity = Number(value)
+  //       if (!Number.isFinite(quantity)) {
+  //         callback(new Error('请输入有效的购买数量'))
+  //         return
+  //       }
+  //       if (quantity < minBuy) {
+  //         callback(new Error(`购买数量不能少于 ${minBuy}`))
+  //         return
+  //       }
+  //       if (quantity > maxBuy) {
+  //         callback(new Error(`购买数量不能超过 ${maxBuy}`))
+  //         return
+  //       }
+  //       callback()
+  //     },
+  //     trigger: 'change',
+  //   },
+  // ],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
   ],
-  captchaCode: [
-    { required: true, message: '请输入验证码', trigger: 'blur' },
-  ],
+  captchaCode: captchaRequired.value
+    ? [
+        { required: true, message: '请输入验证码', trigger: 'blur' },
+      ]
+    : [],
 }))
 
 const fetchProduct = async () => {
@@ -102,6 +106,14 @@ const fetchProduct = async () => {
 }
 
 const sendCaptcha = async () => {
+  if (captchaSending.value) return
+  const now = Date.now()
+  if (now - lastCaptchaRequestAt < 1500) {
+    captchaError.value = '操作太频繁，请稍后再试'
+    return
+  }
+  lastCaptchaRequestAt = now
+  captchaRequired.value = true
   captchaSending.value = true
   captchaError.value = ''
   try {
@@ -120,12 +132,13 @@ const sendCaptcha = async () => {
 
 const retryLoad = async () => {
   await fetchProduct()
-  if (product.value) await sendCaptcha()
+  if (captchaRequired.value && product.value) await sendCaptcha()
 }
 
 const handlePurchase = async () => {
+  if (paying.value) return
   if (!selectedVariant.value) return ElMessage.warning('请选择类型')
-  if (!captchaId.value) return ElMessage.warning('请先获取验证码')
+  if (captchaRequired.value && !captchaId.value) return ElMessage.warning('请先获取验证码')
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
 
@@ -140,8 +153,14 @@ const handlePurchase = async () => {
       captchaCode: form.captchaCode,
     })
     if (purchaseResp.data.code !== 200) {
+      if ((purchaseResp.data.data as any)?.requireCaptcha) {
+        captchaRequired.value = true
+        ElMessage.warning(purchaseResp.data.message || '请先完成验证码校验')
+        await sendCaptcha()
+        return
+      }
       ElMessage.error(purchaseResp.data.message || '购买失败')
-      await sendCaptcha()
+      if (captchaRequired.value) await sendCaptcha()
       return
     }
 
@@ -152,17 +171,27 @@ const handlePurchase = async () => {
     })
     if (callbackResp.data.code !== 200) {
       ElMessage.error(callbackResp.data.message || '购买失败')
-      await sendCaptcha()
+      if (captchaRequired.value) await sendCaptcha()
       return
     }
 
     orderResult.value = callbackResp.data.data
     resultDialogVisible.value = true
     ElMessage.success('支付成功，卡密已生成')
-    await sendCaptcha().catch(() => undefined)
+    captchaRequired.value = false
+    captchaId.value = ''
+    captchaImage.value = ''
+    form.captchaCode = ''
   } catch (err: any) {
-    ElMessage.error(err?.response?.data?.message || err?.message || '购买失败')
-    await sendCaptcha().catch(() => undefined)
+    const data = err?.response?.data
+    if (data?.data?.requireCaptcha) {
+      captchaRequired.value = true
+      ElMessage.warning(data.message || '请先完成验证码校验')
+      await sendCaptcha().catch(() => undefined)
+    } else {
+      ElMessage.error(data?.message || err?.message || '购买失败')
+      if (captchaRequired.value) await sendCaptcha().catch(() => undefined)
+    }
   } finally {
     paying.value = false
   }
@@ -190,7 +219,6 @@ onMounted(async () => {
   document.body.classList.add('public-route-scroll')
   document.getElementById('app')?.classList.add('public-route-scroll')
   await fetchProduct()
-  if (product.value) await sendCaptcha()
 })
 
 onBeforeUnmount(() => {
@@ -221,7 +249,7 @@ onBeforeUnmount(() => {
               <h1>{{ product.name }}</h1>
               <p>{{ product.summary || '自动发货商品，下单后系统即时返回卡密。' }}</p>
               <div class="hero-pricing">
-                <div class="price-line">￥{{ selectedVariant?.price || 0 }}</div>
+                <div class="price-line"><span>￥</span>{{ selectedVariant?.price || 0 }}</div>
                 <span class="price-caption">当前选择价格</span>
               </div>
             </div>
@@ -235,12 +263,12 @@ onBeforeUnmount(() => {
               </div>
             </el-form-item>
 
-            <el-form-item label="数量" prop="quantity" class="hero-form-item">
+            <!-- <el-form-item label="数量" prop="quantity" class="hero-form-item">
               <el-input-number v-model="form.quantity" :min="product.minBuy" :max="product.maxBuy" />
-            </el-form-item>
+            </el-form-item> -->
 
             <el-form-item label="邮箱" prop="email" class="hero-form-item">
-              <el-input v-model="form.email" placeholder="请输入邮箱，订单与卡密会发送到该邮箱" />
+              <el-input v-model="form.email" placeholder="订单与卡密会发送到该邮箱" style="max-width: 300px;" />
             </el-form-item>
 
             <el-form-item label="支付" class="hero-form-item">
@@ -256,7 +284,7 @@ onBeforeUnmount(() => {
               </div>
             </el-form-item>
 
-            <el-form-item label="验证码" prop="captchaCode" class="hero-form-item">
+            <el-form-item v-if="captchaRequired" label="验证码" prop="captchaCode" class="hero-form-item">
               <div class="captcha-inline">
                 <el-input v-model="form.captchaCode" placeholder="请输入图形验证码" />
                 <button type="button" class="captcha-image-btn" :disabled="captchaSending" @click="sendCaptcha">
@@ -264,15 +292,21 @@ onBeforeUnmount(() => {
                   <span v-else>{{ captchaSending ? '加载中...' : '获取验证码' }}</span>
                 </button>
               </div>
+              <div class="captcha-tip">当前请求需要安全校验，完成后可继续购买。</div>
               <div v-if="captchaError" class="captcha-error">{{ captchaError }}</div>
             </el-form-item>
 
             <div class="buy-bar">
               <div class="amount">
-                <span class="amount-label">合计</span>
+                <!-- <span class="amount-label">合计</span> -->
                 <strong class="amount-value">￥{{ totalAmount.toFixed(2) }}</strong>
+
               </div>
-              <el-button type="primary" size="large" :loading="paying" @click="handlePurchase">立即购买</el-button>
+
+              <div class="flex gap20">
+                <el-input-number v-model="form.quantity" :min="product.minBuy" :max="product.maxBuy" />
+                <el-button type="primary" size="large" :loading="paying" @click="handlePurchase">立即购买</el-button>
+              </div>
             </div>
           </el-form>
         </div>
@@ -321,7 +355,7 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .public-product-page {
   min-height: 100dvh;
   padding: 24px;
@@ -501,8 +535,12 @@ onBeforeUnmount(() => {
 .price-line {
   color: #ef4444;
   font-size: 40px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
+
+  span {
+    font-size: x-small;
+  }
 }
 
 .variant-list {
@@ -593,7 +631,6 @@ onBeforeUnmount(() => {
 .amount-value {
   color: #1d4ed8;
   font-size: 38px;
-  font-weight: 800;
   line-height: 1;
 }
 
@@ -865,13 +902,11 @@ onBeforeUnmount(() => {
   }
 
   .amount-value {
-    font-size: 30px;
+    font-size: 28px;
   }
 
   .buy-bar :deep(.el-button) {
     width: auto;
-    min-width: 128px;
-    height: 42px;
     margin-left: 0;
   }
 
@@ -947,15 +982,18 @@ onBeforeUnmount(() => {
   }
 
   .amount-value {
-    font-size: 28px;
+    font-size: 24px;
   }
 
   .buy-bar {
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   }
 
-  .buy-bar :deep(.el-button) {
-    min-width: 116px;
+  .buy-bar :deep(.el-button) {}
+
+  .el-input-number {
+    width: 120px;
+    line-height: 20px;
   }
 }
 </style>
