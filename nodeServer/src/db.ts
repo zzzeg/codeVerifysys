@@ -132,6 +132,7 @@ export interface Product {
   variants: ProductVariant[];
   description?: string;
   linkCode: string;
+  productLink?: string;
 }
 
 export interface Order {

@@ -40,6 +40,7 @@ interface ProductItem {
   variants: VariantItem[]
   description?: string
   linkCode: string
+  productLink?: string
 }
 
 const router = useRouter()
@@ -144,17 +145,6 @@ const removeProduct = async (row: ProductItem) => {
   await fetchProducts()
 }
 
-const openProductLink = async (row: ProductItem) => {
-  const resp = await request.get(`/api/products/${row.publicId || row.id}/link`)
-  const link = resp.data.data.link
-  const code = String(link).split('/').pop()
-  if (!code) {
-    ElMessage.error('商品链接无效')
-    return
-  }
-  window.open(`${window.location.origin}/buy/${code}`, '_blank', 'noopener')
-}
-
 const openMobileFilter = () => {
   filterDrawerOpen.value = true
 }
@@ -238,7 +228,15 @@ onBeforeUnmount(() => {
       </el-table-column> -->
       <el-table-column label="商品链接" width="90" align="center">
         <template #default="{ row }">
-          <el-link v-if="row.status !== 'draft'" type="primary" @click="openProductLink(row)">商品链接</el-link>
+          <a
+            v-if="row.status !== 'draft' && row.productLink"
+            class="product-link"
+            :href="row.productLink"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            商品链接
+          </a>
           <span v-else class="muted">草稿无链接</span>
         </template>
       </el-table-column>
@@ -281,5 +279,15 @@ onBeforeUnmount(() => {
 .muted {
   color: #909399;
   font-size: 12px;
+}
+
+.product-link {
+  color: #409eff;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.product-link:hover {
+  color: #66b1ff;
 }
 </style>

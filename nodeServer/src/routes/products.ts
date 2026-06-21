@@ -82,6 +82,7 @@ const mapProductRow = (r: any): Product => ({
   variants: parseVariants(r.variants),
   description: r.description || undefined,
   linkCode: r.link_code,
+  productLink: r.status === "draft" || !r.link_code ? undefined : `/buy/${r.link_code}`,
 });
 
 const mapOrderRow = (r: any): Order => ({
