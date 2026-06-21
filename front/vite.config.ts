@@ -17,20 +17,6 @@ export default defineConfig({
       resolvers: [ElementPlusResolver({ importStyle: 'css' })],
     }),
   ],
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-
-          if (id.includes('@element-plus/icons-vue')) return 'element-plus-icons'
-          if (id.includes('element-plus')) return 'element-plus'
-          if (id.includes('vue')) return 'vue-vendor'
-          if (id.includes('pinia') || id.includes('vue-router') || id.includes('axios')) return 'app-vendor'
-        },
-      },
-    },
-  },
   server: {
     host: '0.0.0.0',
     strictPort: true,
